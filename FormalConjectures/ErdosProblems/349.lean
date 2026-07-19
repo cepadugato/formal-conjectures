@@ -688,4 +688,204 @@ theorem floorSeq_not_entirelyComplete_of_le_two
     omega
   exact entire_gap_not_complete (fun n => ⌊t * α ^ n⌋) hmono hnn 0 (⌊t⌋ + 1) hm hlo hhi
 
+/-- **Distinct-value prefix sum.** `C a N` is the sum of the *distinct* values among
+`a 0, ..., a (N - 1)`. Auxiliary to `entirely_complete_of_doubling` below: the relevant
+"running reachable total" for subset sums over the SET `Set.range a` (duplicate values are
+counted once, unlike a plain prefix sum). -/
+private noncomputable def C (a : ℕ → ℤ) (N : ℕ) : ℤ := ∑ x ∈ (Finset.range N).image a, x
+
+/-- **Abstract doubling criterion** (van Doorn's Lemma 3, applied with base phase length $r = 0$).
+
+Let $a : \mathbb{N} \to \mathbb{Z}$ be a monotone integer sequence with $a_0 = 1$, satisfying the
+doubling bound $a_{n+1} \le 2 a_n$ for every $n$, and unbounded ($\forall M,\ \exists n,\ M \le
+a_n$). Then every positive integer is a finite subset sum of distinct values of $a$, i.e. the
+range of $a$ is entirely additively complete.
+
+A textbook-level combinatorial fact about monotone integer sequences (no $t, \alpha$); its
+application to $a_n = \lfloor \alpha^n \rfloor$ below (`isGoodPair_one_alpha_of_lt_three_halves`)
+is the research content of Erdős Problem 349. -/
+@[category textbook, AMS 11]
+theorem entirely_complete_of_doubling (a : ℕ → ℤ)
+    (ha0 : a 0 = 1)
+    (hmono : Monotone a)
+    (hdouble : ∀ n, a (n + 1) ≤ 2 * a n)
+    (hub : ∀ M : ℤ, ∃ n, M ≤ a n) :
+    IsEntirelyAddComplete (Set.range a) := by
+  have hnn : ∀ n, 0 ≤ a n := by
+    intro n; have := hmono (Nat.zero_le n); rw [ha0] at this; linarith
+  have hCnn : ∀ N, 0 ≤ C a N := by
+    intro N; apply Finset.sum_nonneg; intro x hx
+    rw [Finset.mem_image] at hx; obtain ⟨i, _, rfl⟩ := hx; exact hnn i
+  have hmemC : ∀ N, a N ≤ C a (N + 1) := by
+    intro N
+    have hmem : a N ∈ (Finset.range (N + 1)).image a := by
+      rw [Finset.mem_image]; exact ⟨N, Finset.mem_range.mpr (Nat.lt_succ_self N), rfl⟩
+    have : a N ≤ ∑ x ∈ (Finset.range (N + 1)).image a, x := by
+      apply Finset.single_le_sum (f := id) _ hmem
+      intro x hx; rw [Finset.mem_image] at hx; obtain ⟨i, _, rfl⟩ := hx; exact hnn i
+    simpa [C] using this
+  have hQ : ∀ N, 2 * a N - 1 ≤ C a (N + 1) := by
+    intro N
+    induction N with
+    | zero =>
+      have h1 : C a (0 + 1) = a 0 := by simp [C, Finset.range_one]
+      rw [h1, ha0]; norm_num
+    | succ N ih =>
+      have hd := hdouble N
+      by_cases hnew : a (N + 1) ∈ (Finset.range (N + 1)).image a
+      · have himg : (Finset.range (N + 2)).image a = (Finset.range (N + 1)).image a := by
+          rw [Finset.range_add_one, Finset.image_insert, Finset.insert_eq_self.mpr hnew]
+        have hCC : C a (N + 2) = C a (N + 1) := by simp only [C, himg]
+        rw [hCC]
+        rw [Finset.mem_image] at hnew
+        obtain ⟨j, hj, hja⟩ := hnew
+        have hjN : j ≤ N := Nat.lt_succ_iff.mp (Finset.mem_range.mp hj)
+        have h2 : a N ≤ a (N + 1) := hmono (Nat.le_succ N)
+        have h4 : a j ≤ a N := hmono hjN
+        have heq : a (N + 1) = a N := by rw [← hja] at h2 ⊢; linarith
+        rw [heq]; exact ih
+      · have himg : (Finset.range (N + 2)).image a
+            = insert (a (N + 1)) ((Finset.range (N + 1)).image a) := by
+          rw [Finset.range_add_one, Finset.image_insert]
+        have hCC : C a (N + 2) = a (N + 1) + C a (N + 1) := by
+          simp only [C, himg, Finset.sum_insert hnew]
+        rw [hCC]
+        linarith [hd, ih]
+  have hgap : ∀ N, a N ≤ 1 + C a N := by
+    intro N
+    cases N with
+    | zero => rw [ha0]; simp [C]
+    | succ M =>
+      have hq := hQ M
+      have hd := hdouble M
+      linarith
+  have hJ : ∀ N, ∀ k : ℤ, 1 ≤ k → k ≤ C a N →
+      ∃ Bv : Finset ℤ, ↑Bv ⊆ (((Finset.range N).image a : Finset ℤ) : Set ℤ) ∧ k = ∑ i ∈ Bv, i := by
+    intro N
+    induction N with
+    | zero => intro k hk1 hk2; simp [C] at hk2; omega
+    | succ N ih =>
+      intro k hk1 hk2
+      by_cases hnew : a N ∈ (Finset.range (N + 1)).image a ∧ a N ∈ (Finset.range N).image a
+      · have himg : (Finset.range (N + 1)).image a = (Finset.range N).image a := by
+          rw [Finset.range_add_one, Finset.image_insert, Finset.insert_eq_self.mpr hnew.2]
+        have hCC : C a (N + 1) = C a N := by simp only [C, himg]
+        rw [hCC] at hk2
+        obtain ⟨Bv, hBv, hBeq⟩ := ih k hk1 hk2
+        refine ⟨Bv, ?_, hBeq⟩
+        rw [himg]; exact hBv
+      · have hnotin : a N ∉ (Finset.range N).image a := by
+          intro hc
+          exact hnew ⟨by rw [Finset.mem_image]; exact ⟨N, Finset.mem_range.mpr (Nat.lt_succ_self N), rfl⟩, hc⟩
+        have himg : (Finset.range (N + 1)).image a
+            = insert (a N) ((Finset.range N).image a) := by
+          rw [Finset.range_add_one, Finset.image_insert]
+        have hCC : C a (N + 1) = a N + C a N := by
+          simp only [C, himg, Finset.sum_insert hnotin]
+        rw [hCC] at hk2
+        by_cases hkle : k ≤ C a N
+        · obtain ⟨Bv, hBv, hBeq⟩ := ih k hk1 hkle
+          refine ⟨Bv, ?_, hBeq⟩
+          rw [himg]
+          refine hBv.trans ?_
+          intro x hx
+          simp only [Finset.coe_insert, Set.mem_insert_iff]
+          exact Or.inr hx
+        · rw [not_le] at hkle
+          have hgapN : a N ≤ 1 + C a N := hgap N
+          have hk'nn : 0 ≤ k - a N := by omega
+          have hk'le : k - a N ≤ C a N := by omega
+          rcases eq_or_lt_of_le hk'nn with h0 | hpos
+          · refine ⟨{a N}, ?_, ?_⟩
+            · rw [himg]
+              intro x hx
+              simp only [Finset.coe_singleton, Set.mem_singleton_iff] at hx
+              subst hx
+              simp [Finset.coe_insert]
+            · simp; omega
+          · obtain ⟨Bv, hBv, hBeq⟩ := ih (k - a N) hpos hk'le
+            have haNnotin : a N ∉ Bv := by
+              intro hmem
+              have := hBv hmem
+              simp only [Finset.mem_coe] at this
+              exact hnotin this
+            refine ⟨insert (a N) Bv, ?_, ?_⟩
+            · rw [himg]
+              intro x hx
+              rw [Finset.coe_insert] at hx ⊢
+              rcases Set.mem_insert_iff.mp hx with hx | hx
+              · subst hx; exact Set.mem_insert _ _
+              · exact Set.mem_insert_iff.mpr (Or.inr (hBv hx))
+            · rw [Finset.sum_insert haNnotin]; omega
+  intro k hk1
+  obtain ⟨n, hn⟩ := hub k
+  have hkC : k ≤ C a (n + 1) := le_trans hn (hmemC n)
+  obtain ⟨Bv, hBv, hBeq⟩ := hJ (n + 1) k hk1 hkC
+  refine ⟨Bv, ?_, hBeq⟩
+  refine hBv.trans ?_
+  intro x hx
+  simp only [Finset.coe_image, Set.mem_image, Finset.mem_coe, Finset.mem_range] at hx
+  obtain ⟨i, _, rfl⟩ := hx
+  exact Set.mem_range_self i
+
+/-- **Doubling bound for the floor of a power sequence.** For $1 < \alpha < 3/2$ and any
+$n \ge 0$, $\lfloor \alpha^{n+1} \rfloor \le 2 \lfloor \alpha^n \rfloor$.
+
+Proof: $\alpha^{n+1} = \alpha \cdot \alpha^n < \tfrac{3}{2}\alpha^n \le \tfrac{3}{2}(\lfloor
+\alpha^n\rfloor + 1) \le 2\lfloor \alpha^n\rfloor + 1$, using $\lfloor \alpha^n\rfloor \ge 1$
+(since $\alpha > 1$). A textbook-level floor/inequality fact. -/
+@[category textbook, AMS 11]
+theorem floor_pow_succ_le_two_mul_floor_pow (α : ℝ) (hα_lo : 1 < α) (hα_hi : α < 3 / 2)
+    (n : ℕ) :
+    ⌊α ^ (n + 1)⌋ ≤ 2 * ⌊α ^ n⌋ := by
+  have hpos : (0 : ℝ) < α ^ n := by positivity
+  have hone : (1 : ℝ) ≤ α ^ n := one_le_pow₀ hα_lo.le
+  have hm1 : (1 : ℤ) ≤ ⌊α ^ n⌋ := by rw [Int.le_floor]; push_cast; linarith
+  have hflo : (↑(⌊α ^ n⌋) : ℝ) ≤ α ^ n := Int.floor_le _
+  have hfle : α ^ n - 1 < (↑(⌊α ^ n⌋) : ℝ) := by linarith [Int.sub_one_lt_floor (α ^ n)]
+  rw [Int.floor_le_iff]
+  push_cast
+  have hsucc : α ^ (n + 1) = α * α ^ n := by ring
+  rw [hsucc]
+  have hm1r : (1 : ℝ) ≤ (↑(⌊α ^ n⌋) : ℝ) := by exact_mod_cast hm1
+  nlinarith [mul_pos (by linarith : (0 : ℝ) < α) hpos, hflo, hfle, hm1r]
+
+/-- **Erdős Problem 349, Proposition 6 (van Doorn), "if" direction, case $t = 1$.**
+
+For $1 < \alpha < 3/2$, the pair $(1, \alpha)$ is good: the sequence $\lfloor \alpha^n\rfloor$ is
+additively complete (in fact *entirely* additively complete — every $k \ge 1$ is a finite subset
+sum of distinct terms $\lfloor \alpha^n\rfloor$).
+
+A partial result on the open Erdős Problem 349: it complements `floorSeq_not_entirelyComplete_of_le_two`
+(which rules out $5/3 \le \alpha < 2$ for $t \ge 3$) and the integer-pair characterization
+`integer_isGoodPair_iff`. Proof: instantiate `entirely_complete_of_doubling` with $a_n =
+\lfloor \alpha^n\rfloor$, using `floor_pow_succ_le_two_mul_floor_pow` for the doubling bound. -/
+@[category research solved, AMS 11]
+theorem isGoodPair_one_alpha_of_lt_three_halves (α : ℝ) (hα_lo : 1 < α) (hα_hi : α < 3 / 2) :
+    IsGoodPair 1 α := by
+  set a : ℕ → ℤ := fun n => ⌊α ^ n⌋ with ha
+  have ha0 : a 0 = 1 := by simp [ha]
+  have hmono : Monotone a := by
+    intro m n hmn
+    simp only [ha]
+    exact Int.floor_le_floor (pow_le_pow_right₀ hα_lo.le hmn)
+  have hdouble : ∀ n, a (n + 1) ≤ 2 * a n := by
+    intro n; simpa [ha] using floor_pow_succ_le_two_mul_floor_pow α hα_lo hα_hi n
+  have hub : ∀ M : ℤ, ∃ n, M ≤ a n := by
+    intro M
+    obtain ⟨n, hn⟩ := pow_unbounded_of_one_lt ((M : ℝ) + 1) hα_lo
+    refine ⟨n, ?_⟩
+    simp only [ha]
+    rw [Int.le_floor]
+    have : (M : ℝ) < α ^ n := by linarith
+    exact_mod_cast this.le
+  have hentire : IsEntirelyAddComplete (Set.range a) :=
+    entirely_complete_of_doubling a ha0 hmono hdouble hub
+  have hrange : (Set.range (fun n => ⌊(1 : ℝ) * α ^ n⌋)) = Set.range a := by
+    congr 1; funext n; simp [ha]
+  unfold IsGoodPair
+  rw [hrange]
+  exact isEntirelyAddComplete_imp_isAddComplete hentire
+
+
 end Erdos349
