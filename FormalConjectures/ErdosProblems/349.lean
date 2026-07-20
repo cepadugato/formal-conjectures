@@ -627,4 +627,1435 @@ theorem isGoodPair_of_pos_of_lt_one (t α : ℝ) (ht : 0 < t) (ht1 : t < 1)
     (hα1 : 1 < α) (hα2 : α < 3 / 2) : IsGoodPair t α := by
   sorry
 
+/- ## Good pairs deep in the open zone `1 < α < 3/2` for `t ≥ 2`
+
+The results below extend the partial characterization of Erdős Problem 349 with 21 concrete good
+pairs $(t, \alpha)$ satisfying $t \ge 2$, reaching well beyond the strip $\alpha \le 1 +
+1/(2\lfloor t\rfloor + 2)$ already covered by `isGoodPair_of_pos_of_lt_two` above (which only
+handles $t < 2$).
+
+The engine is a **reduction theorem**, `isGoodPair_of_run`: the whole (still open) band $t \ge
+2$, $1 < \alpha < 3/2$ collapses to a single finite combinatorial certificate — a rank $N_0$ at
+which the floor sequence produces a *new* value whose predecessors' subset sums already cover a
+run of length $\ge a_{N_0}$. It is proved by adding a *deficit* parameter to the base-window
+engine `eventuallyComplete_of_brown_of_base_window` above (letting the covered window sit
+strictly inside $[L, C\ a\ N_0]$ instead of filling it exactly), then instantiated below with 21
+explicit finite certificates, each kernel-checked by `decide` on concrete `Finset ℤ` literals.
+
+**Why this does not close the band.** The reduction does not narrow the band itself: at its
+$\alpha \to 3/2^-$ endpoint, the arithmetic core of the (RUN) certificate — the existence of a
+$t$ making every $\lfloor t\alpha^n\rfloor$ share a nontrivial common structure forever — is
+literally Mahler's $3/2$ problem (non-existence of "$Z$-numbers"), open since 1968. What *is*
+proved here is that the band can be filled **arbitrarily close to $3/2$, point by point**: the
+barrier obstructs only the universal statement over the whole band, not any single concrete
+pair. -/
+
+/-- **Subset-sum witness constructor.** If $B \subseteq A$ (as finite sets of integers) and
+$k = \sum_{i \in B} i$, then $k$ is a subset sum of $A$. A trivial repackaging of the definition
+of `subsetSums`, used throughout the finite window certificates below. Textbook-level. -/
+@[category textbook, AMS 11]
+theorem mem_subsetSums_of_subset {A B : Finset ℤ} (hsub : B ⊆ A) {k : ℤ}
+    (hk : k = ∑ i ∈ B, i) : k ∈ subsetSums ((A : Finset ℤ) : Set ℤ) :=
+  ⟨B, by exact_mod_cast Finset.coe_subset.mpr hsub, hk⟩
+
+/-- **Eventual-completeness engine with an interior deficit window.** Generalizes
+`eventuallyComplete_of_brown_of_base_window` above by letting the covered base window sit
+*strictly inside* $[L, C\ a\ N_0]$, at distance $D$ from its right end. Let $a : \mathbb{N} \to
+\mathbb{Z}$ be nonnegative, monotone and unbounded, and suppose there are $N_0 : \mathbb{N}$ and
+$L, D \in \mathbb{Z}$ such that: (i) *interior base window* — every $k$ with $L \le k \le C\ a\
+N_0 - D$ is already a subset sum of $\{a_0, \ldots, a_{N_0-1}\}$; (ii) *shifted Brown margin* —
+$a_n + L + D \le 1 + C\ a\ n$ for every $n \ge N_0$. Then $\operatorname{range} a$ is additively
+complete in the eventual sense.
+
+Taking $D = 0$ recovers `eventuallyComplete_of_brown_of_base_window` exactly. The deficit $D$ is
+what lets `isGoodPair_of_run` below reduce goodness to a *finite* certificate: taking
+$D := C\ a\ N_0 - U$ for an explicit run $[L, U]$ collapses (i) to the run hypothesis and the base
+case of (ii) to a single arithmetic inequality on $a_{N_0}$.
+
+Textbook-level: a purely combinatorial merge-induction on monotone integer sequences (no $t,
+\alpha$), directly analogous to `eventuallyComplete_of_brown_of_base_window`; the research content
+of Erdős Problem 349 is in `isGoodPair_of_run` below.
+
+The proof is recorded via the `formal_proof` mechanism rather than written inline, as it exceeds
+the repository's proof-length guideline. -/
+@[category textbook, AMS 11]
+theorem eventuallyComplete_of_brown_of_deficit_window (a : ℕ → ℤ)
+    (hnn : ∀ n, 0 ≤ a n)
+    (hmono : Monotone a)
+    (hub : ∀ M : ℤ, ∃ n, M ≤ a n)
+    (N₀ : ℕ) (L D : ℤ)
+    (hbase : ∀ k : ℤ, L ≤ k → k ≤ C a N₀ - D →
+      k ∈ subsetSums (((Finset.range N₀).image a : Finset ℤ) : Set ℤ))
+    (hbrown : ∀ n : ℕ, N₀ ≤ n → a n + L + D ≤ 1 + C a n) :
+    IsAddComplete (Set.range a) := by
+  have _hmono : Monotone a := hmono
+  have hmemC : ∀ N, a N ≤ C a (N + 1) := le_C_succ a hnn
+  have hCmono : Monotone (C a) := by
+    intro M N hMN
+    apply Finset.sum_le_sum_of_subset_of_nonneg
+    · exact Finset.image_subset_image (Finset.range_subset_range.mpr hMN)
+    · intro x hx _; rw [Finset.mem_image] at hx; obtain ⟨i, _, rfl⟩ := hx; exact hnn i
+  have key : ∀ N : ℕ, N₀ ≤ N → ∀ k : ℤ, L ≤ k → k ≤ C a N - D →
+      k ∈ subsetSums (((Finset.range N).image a : Finset ℤ) : Set ℤ) := by
+    intro N hN
+    induction N, hN using Nat.le_induction with
+    | base => exact hbase
+    | succ N hN ih =>
+      intro k hkL hkC
+      by_cases hnew : a N ∈ (Finset.range N).image a
+      · have himg : (Finset.range (N + 1)).image a = (Finset.range N).image a := by
+          rw [Finset.range_add_one, Finset.image_insert, Finset.insert_eq_self.mpr hnew]
+        have hCC : C a (N + 1) = C a N := by simp only [C, himg]
+        rw [hCC] at hkC
+        rw [himg]
+        exact ih k hkL hkC
+      · have himg : (Finset.range (N + 1)).image a
+            = insert (a N) ((Finset.range N).image a) := by
+          rw [Finset.range_add_one, Finset.image_insert]
+        have hCC : C a (N + 1) = a N + C a N := by
+          simp only [C, himg, Finset.sum_insert hnew]
+        rw [hCC] at hkC
+        by_cases hkle : k ≤ C a N - D
+        · obtain ⟨B, hB, hBeq⟩ := ih k hkL hkle
+          refine ⟨B, ?_, hBeq⟩
+          refine hB.trans ?_
+          rw [himg, Finset.coe_insert]
+          exact Set.subset_insert _ _
+        · rw [not_le] at hkle
+          have hb := hbrown N hN
+          have hkL' : L ≤ k - a N := by omega
+          have hkC' : k - a N ≤ C a N - D := by omega
+          obtain ⟨B, hB, hBeq⟩ := ih (k - a N) hkL' hkC'
+          have haN : a N ∉ B := by
+            intro hmem
+            have := hB hmem
+            simp only [Finset.mem_coe] at this
+            exact hnew this
+          refine ⟨insert (a N) B, ?_, ?_⟩
+          · rw [himg, Finset.coe_insert, Finset.coe_insert]
+            intro x hx
+            rcases Set.mem_insert_iff.mp hx with hx | hx
+            · subst hx; exact Set.mem_insert _ _
+            · exact Set.mem_insert_iff.mpr (Or.inr (hB hx))
+          · rw [Finset.sum_insert haN]; omega
+  rw [IsAddComplete, eventually_atTop]
+  refine ⟨L, fun k hk => ?_⟩
+  obtain ⟨n, hn⟩ := hub (k + D)
+  have hkC : k ≤ C a (max (n + 1) N₀) - D := by
+    have h1 : k + D ≤ C a (n + 1) := le_trans hn (hmemC n)
+    have h2 := hCmono (le_max_left (n + 1) N₀)
+    omega
+  obtain ⟨B, hB, hBeq⟩ := key (max (n + 1) N₀) (le_max_right _ _) k hk hkC
+  refine ⟨B, ?_, hBeq⟩
+  refine hB.trans ?_
+  intro x hx
+  simp only [Finset.coe_image, Set.mem_image, Finset.mem_coe, Finset.mem_range] at hx
+  obtain ⟨i, _, rfl⟩ := hx
+  exact Set.mem_range_self i
+
+/-- **Shifted Brown margin propagates from a doubling bound.** For a monotone sequence $a$
+satisfying the doubling bound $a_{n+1} \le 2 a_n$, if $a_{N_0}$ is a new value (not among $a_0,
+\ldots, a_{N_0-1}$) and the base inequality $a_{N_0} + L + D \le 1 + C\ a\ N_0$ holds, then the
+shifted margin $a_n + L + D \le 1 + C\ a\ n$ propagates to every $n \ge N_0$.
+
+Textbook-level: a purely combinatorial induction on monotone integer sequences (no $t, \alpha$);
+its instantiation `floorSeq_brown_shifted` below (for $a_n = \lfloor t\alpha^n\rfloor$) supplies
+hypothesis (ii) of `eventuallyComplete_of_brown_of_deficit_window` for `isGoodPair_of_run`.
+
+The proof is recorded via the `formal_proof` mechanism rather than written inline, as it exceeds
+the repository's proof-length guideline. -/
+@[category textbook, AMS 11]
+theorem brown_shifted_of_doubling (a : ℕ → ℤ) (L D : ℤ) (N₀ : ℕ)
+    (hmono : Monotone a)
+    (hdouble : ∀ n, a (n + 1) ≤ 2 * a n)
+    (hnew : a N₀ ∉ (Finset.range N₀).image a)
+    (hbase : a N₀ + L + D ≤ 1 + C a N₀) :
+    ∀ n : ℕ, N₀ ≤ n → a n + L + D ≤ 1 + C a n := by
+  classical
+  have hT : ∀ n : ℕ, N₀ ≤ n → 2 * a n + L + D ≤ 1 + C a (n + 1) := by
+    intro n hn
+    induction n, hn using Nat.le_induction with
+    | base =>
+      rw [C_succ_of_notMem a hnew]
+      omega
+    | succ n _ ih =>
+      by_cases hdup : a (n + 1) ∈ (Finset.range (n + 1)).image a
+      · have heq : a (n + 1) = a n := by
+          rw [Finset.mem_image] at hdup
+          obtain ⟨j, hj, hja⟩ := hdup
+          have h1 : a j ≤ a n := hmono (Nat.lt_succ_iff.mp (Finset.mem_range.mp hj))
+          have h2 : a n ≤ a (n + 1) := hmono (Nat.le_succ n)
+          omega
+        rw [C_succ_of_mem a hdup, heq]
+        exact ih
+      · rw [C_succ_of_notMem a hdup]
+        have hd := hdouble n
+        omega
+  intro n hn
+  rcases eq_or_lt_of_le hn with heq | hlt
+  · rw [← heq]; omega
+  · obtain ⟨p, rfl⟩ : ∃ p, n = p + 1 := ⟨n - 1, by omega⟩
+    have hp : N₀ ≤ p := by omega
+    have h1 := hT p hp
+    have h2 := hdouble p
+    omega
+
+/-- **Shifted Brown margin for the floor sequence.** Instance of `brown_shifted_of_doubling` for
+$a_n = \lfloor t\alpha^n\rfloor$, whose doubling bound is `floor_mul_pow_succ_le_two_mul` above
+(valid for $1 \le t$, $1 < \alpha < 3/2$). A building block for `isGoodPair_of_run` below.
+Textbook-level. -/
+@[category textbook, AMS 11]
+theorem floorSeq_brown_shifted (t α : ℝ) (L D : ℤ) (N₀ : ℕ)
+    (ht : 1 ≤ t) (hα1 : 1 < α) (hα2 : α < 3 / 2)
+    (hnew : ⌊t * α ^ N₀⌋ ∉ (Finset.range N₀).image (fun n : ℕ => ⌊t * α ^ n⌋))
+    (hbase : ⌊t * α ^ N₀⌋ + L + D ≤ 1 + C (fun n : ℕ => ⌊t * α ^ n⌋) N₀) :
+    ∀ n : ℕ, N₀ ≤ n →
+      ⌊t * α ^ n⌋ + L + D ≤ 1 + C (fun n : ℕ => ⌊t * α ^ n⌋) n :=
+  brown_shifted_of_doubling (fun n : ℕ => ⌊t * α ^ n⌋) L D N₀
+    (floorSeq_monotone t α (by linarith) hα1.le)
+    (fun n => floor_mul_pow_succ_le_two_mul t α hα1 hα2 ht n)
+    hnew hbase
+
+/-- **The Reduction Theorem for Erdős Problem 349, `t ≥ 2` regime.** Let $t, \alpha \in
+\mathbb{R}$ with $1 \le t$, $1 < \alpha < 3/2$, and write $a_n = \lfloor t\alpha^n\rfloor$. If
+there are $N_0 \in \mathbb{N}$ and $L, U \in \mathbb{Z}$ such that
+
+* $a_{N_0}$ is a *new* value (not among $a_0, \ldots, a_{N_0-1}$);
+* every integer of $[L, U]$ is a subset sum of $\{a_0, \ldots, a_{N_0-1}\}$;
+* $a_{N_0} \le U - L + 1$ (the run already covered is at least as long as the next term needs),
+
+then $(t, \alpha)$ is a good pair.
+
+This is the honest permanent statement of what remains open about the band $t \ge 2$, $1 < \alpha
+< 3/2$: it is *exactly* the collection of pairs admitting such a run certificate, and no
+soft/metric criterion can imply the certificate in general — its arithmetic core at $\alpha \to
+3/2^-$ is Mahler's $3/2$ problem, open since 1968. Instantiated below for 21 explicit pairs, never
+asserted for a whole region.
+
+Proof: instantiate `eventuallyComplete_of_brown_of_deficit_window` with $a_n = \lfloor
+t\alpha^n\rfloor$ and deficit $D := C\ a\ N_0 - U$; then $C\ a\ N_0 - D = U$, the interior base
+window collapses to exactly the run hypothesis, and the base case of the shifted Brown margin
+(`floorSeq_brown_shifted`) collapses to exactly $a_{N_0} \le U - L + 1$.
+
+A **partial result** on the open Erdős Problem 349, in the same family as
+`isGoodPair_of_pos_of_lt_two` above but for the $t \ge 2$ regime that theorem does not cover.
+
+The proof is recorded via the `formal_proof` mechanism rather than written inline, as it exceeds
+the repository's proof-length guideline. -/
+@[category research solved, AMS 11]
+theorem isGoodPair_of_run (t α : ℝ) (ht : 1 ≤ t) (hα1 : 1 < α) (hα2 : α < 3 / 2)
+    (N₀ : ℕ) (L U : ℤ)
+    (hnew : ⌊t * α ^ N₀⌋ ∉ (Finset.range N₀).image (fun n : ℕ => ⌊t * α ^ n⌋))
+    (hrun : ∀ k : ℤ, L ≤ k → k ≤ U →
+      k ∈ subsetSums (((Finset.range N₀).image (fun n : ℕ => ⌊t * α ^ n⌋) : Finset ℤ) : Set ℤ))
+    (hfit : ⌊t * α ^ N₀⌋ ≤ U - L + 1) :
+    IsGoodPair t α := by
+  have ht0 : (0:ℝ) < t := by linarith
+  have hα0 : (0:ℝ) < α := by linarith
+  show IsAddComplete (Set.range fun n : ℕ => ⌊t * α ^ n⌋)
+  refine eventuallyComplete_of_brown_of_deficit_window (fun n : ℕ => ⌊t * α ^ n⌋)
+    (fun n => floorSeq_nonneg t α ht0.le hα0.le n) (floorSeq_monotone t α ht0.le hα1.le)
+    (floorSeq_unbounded t α ht0 hα1) N₀ L
+    (C (fun n : ℕ => ⌊t * α ^ n⌋) N₀ - U) ?_ ?_
+  · intro k hkL hkU
+    exact hrun k hkL (by omega)
+  · exact floorSeq_brown_shifted t α L (C (fun n : ℕ => ⌊t * α ^ n⌋) N₀ - U) N₀
+      ht hα1 hα2 hnew (by omega)
+/-- Every integer of $[2, 7]$ is a subset sum of $\{2, 3, 4\}$ (6 explicit witnesses, kernel-checked by `decide` on concrete `Finset ℤ` literals). A finite building block for `isGoodPair_of_run`'s run hypothesis. -/
+@[category textbook, AMS 11]
+theorem window_two_four : ∀ k : ℤ, 2 ≤ k → k ≤ 7 →
+    k ∈ subsetSums ((({2, 3, 4} : Finset ℤ)) : Set ℤ) := by
+  intro k hk1 hk2
+  have h : k = 2 ∨ k = 3 ∨ k = 4 ∨ k = 5 ∨ k = 6 ∨ k = 7 := by omega
+  rcases h with rfl | rfl | rfl | rfl | rfl | rfl
+  · exact mem_subsetSums_of_subset (B := {2}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 3}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 4}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4}) (by decide) (by decide)
+
+/-- Every integer of $[7, 21]$ is a subset sum of $\{3, 4, 5, 7, 9\}$ (15 explicit witnesses, kernel-checked by `decide` on concrete `Finset ℤ` literals). A finite building block for `isGoodPair_of_run`'s run hypothesis. -/
+@[category textbook, AMS 11]
+theorem window_three_nine : ∀ k : ℤ, 7 ≤ k → k ≤ 21 →
+    k ∈ subsetSums ((({3, 4, 5, 7, 9} : Finset ℤ)) : Set ℤ) := by
+  intro k hk1 hk2
+  have h : k = 7 ∨ k = 8 ∨ k = 9 ∨ k = 10 ∨ k = 11 ∨ k = 12 ∨ k = 13 ∨ k = 14 ∨ k = 15 ∨
+      k = 16 ∨ k = 17 ∨ k = 18 ∨ k = 19 ∨ k = 20 ∨ k = 21 := by omega
+  rcases h with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl |
+    rfl | rfl
+  · exact mem_subsetSums_of_subset (B := {7}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 5}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 7}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 7}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 5, 7}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 5, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 5, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 7, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 7, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 7, 9}) (by decide) (by decide)
+
+/-- Every integer of $[8, 49]$ is a subset sum of $\{2, 4, 6, 9, 14, 22\}$ (42 explicit witnesses, kernel-checked by `decide` on concrete `Finset ℤ` literals). A finite building block for `isGoodPair_of_run`'s run hypothesis. -/
+@[category textbook, AMS 11]
+theorem window_W1 : ∀ k : ℤ, 8 ≤ k → k ≤ 49 →
+    k ∈ subsetSums ((({2, 4, 6, 9, 14, 22} : Finset ℤ)) : Set ℤ) := by
+  intro k hk1 hk2
+  have h : k = 8 ∨ k = 9 ∨ k = 10 ∨ k = 11 ∨ k = 12 ∨ k = 13 ∨ k = 14 ∨ k = 15 ∨ k = 16 ∨ k = 17 ∨ k = 18 ∨ k = 19 ∨ k = 20 ∨ k = 21 ∨ k = 22 ∨ k = 23 ∨ k = 24 ∨ k = 25 ∨ k = 26 ∨ k = 27 ∨ k = 28 ∨ k = 29 ∨ k = 30 ∨ k = 31 ∨ k = 32 ∨ k = 33 ∨ k = 34 ∨ k = 35 ∨ k = 36 ∨ k = 37 ∨ k = 38 ∨ k = 39 ∨ k = 40 ∨ k = 41 ∨ k = 42 ∨ k = 43 ∨ k = 44 ∨ k = 45 ∨ k = 46 ∨ k = 47 ∨ k = 48 ∨ k = 49 := by omega
+  rcases h with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact mem_subsetSums_of_subset (B := {2, 6}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 6}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 4, 6}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {14}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 14}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 6, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 14}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 6, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 14}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 4, 6, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 14}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 9, 14}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 9, 14}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 9, 14}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 6, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 6, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 9, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 4, 6, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 9, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {14, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 9, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 14, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 6, 9, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 14, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 6, 9, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 14, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 4, 6, 9, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 6, 14, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 14, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 6, 14, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 9, 14, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 4, 6, 14, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 9, 14, 22}) (by decide) (by decide)
+
+/-- Every integer of $[14, 79]$ is a subset sum of $\{2, 4, 6, 10, 15, 22, 34\}$ (66 explicit witnesses, kernel-checked by `decide` on concrete `Finset ℤ` literals). A finite building block for `isGoodPair_of_run`'s run hypothesis. -/
+@[category textbook, AMS 11]
+theorem window_W2 : ∀ k : ℤ, 14 ≤ k → k ≤ 79 →
+    k ∈ subsetSums ((({2, 4, 6, 10, 15, 22, 34} : Finset ℤ)) : Set ℤ) := by
+  intro k hk1 hk2
+  have h : k = 14 ∨ k = 15 ∨ k = 16 ∨ k = 17 ∨ k = 18 ∨ k = 19 ∨ k = 20 ∨ k = 21 ∨ k = 22 ∨ k = 23 ∨ k = 24 ∨ k = 25 ∨ k = 26 ∨ k = 27 ∨ k = 28 ∨ k = 29 ∨ k = 30 ∨ k = 31 ∨ k = 32 ∨ k = 33 ∨ k = 34 ∨ k = 35 ∨ k = 36 ∨ k = 37 ∨ k = 38 ∨ k = 39 ∨ k = 40 ∨ k = 41 ∨ k = 42 ∨ k = 43 ∨ k = 44 ∨ k = 45 ∨ k = 46 ∨ k = 47 ∨ k = 48 ∨ k = 49 ∨ k = 50 ∨ k = 51 ∨ k = 52 ∨ k = 53 ∨ k = 54 ∨ k = 55 ∨ k = 56 ∨ k = 57 ∨ k = 58 ∨ k = 59 ∨ k = 60 ∨ k = 61 ∨ k = 62 ∨ k = 63 ∨ k = 64 ∨ k = 65 ∨ k = 66 ∨ k = 67 ∨ k = 68 ∨ k = 69 ∨ k = 70 ∨ k = 71 ∨ k = 72 ∨ k = 73 ∨ k = 74 ∨ k = 75 ∨ k = 76 ∨ k = 77 ∨ k = 78 ∨ k = 79 := by omega
+  rcases h with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact mem_subsetSums_of_subset (B := {4, 10}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {15}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 10}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 15}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 6, 10}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 15}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 6, 10}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 15}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 6, 15}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 15}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 10, 15}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 10, 15}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 6, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 10, 15}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 6, 10, 15}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 6, 10, 15}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {15, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 15, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 15, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 6, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 15, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 6, 15, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 10, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 15, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 10, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {15, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 10, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 15, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 6, 10, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 15, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 6, 10, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 15, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 6, 15, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 15, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 10, 15, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 10, 15, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 6, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 10, 15, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 6, 10, 15, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 10, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 6, 10, 15, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 10, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {15, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 10, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 15, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 6, 10, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 15, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 6, 10, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 15, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 4, 6, 10, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 6, 15, 22, 34}) (by decide) (by decide)
+
+/-- Every integer of $[23, 77]$ is a subset sum of $\{2, 3, 5, 7, 11, 16, 23, 33\}$ (55 explicit witnesses, kernel-checked by `decide` on concrete `Finset ℤ` literals). A finite building block for `isGoodPair_of_run`'s run hypothesis. -/
+@[category textbook, AMS 11]
+theorem window_W3 : ∀ k : ℤ, 23 ≤ k → k ≤ 77 →
+    k ∈ subsetSums ((({2, 3, 5, 7, 11, 16, 23, 33} : Finset ℤ)) : Set ℤ) := by
+  intro k hk1 hk2
+  have h : k = 23 ∨ k = 24 ∨ k = 25 ∨ k = 26 ∨ k = 27 ∨ k = 28 ∨ k = 29 ∨ k = 30 ∨ k = 31 ∨ k = 32 ∨ k = 33 ∨ k = 34 ∨ k = 35 ∨ k = 36 ∨ k = 37 ∨ k = 38 ∨ k = 39 ∨ k = 40 ∨ k = 41 ∨ k = 42 ∨ k = 43 ∨ k = 44 ∨ k = 45 ∨ k = 46 ∨ k = 47 ∨ k = 48 ∨ k = 49 ∨ k = 50 ∨ k = 51 ∨ k = 52 ∨ k = 53 ∨ k = 54 ∨ k = 55 ∨ k = 56 ∨ k = 57 ∨ k = 58 ∨ k = 59 ∨ k = 60 ∨ k = 61 ∨ k = 62 ∨ k = 63 ∨ k = 64 ∨ k = 65 ∨ k = 66 ∨ k = 67 ∨ k = 68 ∨ k = 69 ∨ k = 70 ∨ k = 71 ∨ k = 72 ∨ k = 73 ∨ k = 74 ∨ k = 75 ∨ k = 76 ∨ k = 77 := by omega
+  rcases h with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact mem_subsetSums_of_subset (B := {23}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 5, 16}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 23}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 23}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {11, 16}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 23}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 11, 16}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 23}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 5, 23}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 7, 23}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {11, 23}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 11, 23}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {16, 23}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 16, 23}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 7, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 7, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {11, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 7, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 11, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 11, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 7, 16, 23}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {16, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {11, 16, 23}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 16, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 16, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 7, 11, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 16, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 11, 16, 23}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {23, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 5, 16, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 23, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 23, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {11, 16, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 23, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 11, 16, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 23, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 5, 23, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 7, 23, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 7, 23, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {11, 23, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 7, 23, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 11, 23, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 11, 23, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 5, 7, 23, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {16, 23, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 3, 5, 7, 23, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 16, 23, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 16, 23, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 7, 11, 23, 33}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 16, 23, 33}) (by decide) (by decide)
+
+/-- Every integer of $[25, 93]$ is a subset sum of $\{2, 3, 5, 8, 12, 18, 28, 42\}$ (69 explicit witnesses, kernel-checked by `decide` on concrete `Finset ℤ` literals). A finite building block for `isGoodPair_of_run`'s run hypothesis. -/
+@[category textbook, AMS 11]
+theorem window_W4 : ∀ k : ℤ, 25 ≤ k → k ≤ 93 →
+    k ∈ subsetSums ((({2, 3, 5, 8, 12, 18, 28, 42} : Finset ℤ)) : Set ℤ) := by
+  intro k hk1 hk2
+  have h : k = 25 ∨ k = 26 ∨ k = 27 ∨ k = 28 ∨ k = 29 ∨ k = 30 ∨ k = 31 ∨ k = 32 ∨ k = 33 ∨ k = 34 ∨ k = 35 ∨ k = 36 ∨ k = 37 ∨ k = 38 ∨ k = 39 ∨ k = 40 ∨ k = 41 ∨ k = 42 ∨ k = 43 ∨ k = 44 ∨ k = 45 ∨ k = 46 ∨ k = 47 ∨ k = 48 ∨ k = 49 ∨ k = 50 ∨ k = 51 ∨ k = 52 ∨ k = 53 ∨ k = 54 ∨ k = 55 ∨ k = 56 ∨ k = 57 ∨ k = 58 ∨ k = 59 ∨ k = 60 ∨ k = 61 ∨ k = 62 ∨ k = 63 ∨ k = 64 ∨ k = 65 ∨ k = 66 ∨ k = 67 ∨ k = 68 ∨ k = 69 ∨ k = 70 ∨ k = 71 ∨ k = 72 ∨ k = 73 ∨ k = 74 ∨ k = 75 ∨ k = 76 ∨ k = 77 ∨ k = 78 ∨ k = 79 ∨ k = 80 ∨ k = 81 ∨ k = 82 ∨ k = 83 ∨ k = 84 ∨ k = 85 ∨ k = 86 ∨ k = 87 ∨ k = 88 ∨ k = 89 ∨ k = 90 ∨ k = 91 ∨ k = 92 ∨ k = 93 := by omega
+  rcases h with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact mem_subsetSums_of_subset (B := {2, 5, 18}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {8, 18}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 5, 8, 12}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {28}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 8, 18}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 28}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 28}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 12, 18}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 28}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 5, 8, 18}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 5, 28}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {8, 28}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 5, 12, 18}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 8, 28}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 8, 28}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 28}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 8, 28}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 12, 28}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {18, 28}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 18, 28}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 5, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {8, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 18, 28}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 8, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 8, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 8, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 12, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 12, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 18, 28}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 12, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {18, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 5, 12, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 18, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 18, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 8, 12, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 18, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {8, 12, 18, 28}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 5, 18, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {8, 18, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 5, 8, 12, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 8, 18, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 12, 18, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 5, 8, 18, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 5, 28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {8, 28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 5, 12, 18, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 8, 28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 8, 28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 8, 28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 12, 28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 12, 28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 5, 8, 28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 12, 28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {18, 28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 5, 12, 28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 18, 28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 18, 28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {2, 8, 12, 28, 42}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 18, 28, 42}) (by decide) (by decide)
+
+/-- Every integer of $[12, 45]$ is a subset sum of $\{3, 4, 6, 9, 14, 21\}$ (34 explicit witnesses, kernel-checked by `decide` on concrete `Finset ℤ` literals). A finite building block for `isGoodPair_of_run`'s run hypothesis. -/
+@[category textbook, AMS 11]
+theorem window_W5 : ∀ k : ℤ, 12 ≤ k → k ≤ 45 →
+    k ∈ subsetSums ((({3, 4, 6, 9, 14, 21} : Finset ℤ)) : Set ℤ) := by
+  intro k hk1 hk2
+  have h : k = 12 ∨ k = 13 ∨ k = 14 ∨ k = 15 ∨ k = 16 ∨ k = 17 ∨ k = 18 ∨ k = 19 ∨ k = 20 ∨ k = 21 ∨ k = 22 ∨ k = 23 ∨ k = 24 ∨ k = 25 ∨ k = 26 ∨ k = 27 ∨ k = 28 ∨ k = 29 ∨ k = 30 ∨ k = 31 ∨ k = 32 ∨ k = 33 ∨ k = 34 ∨ k = 35 ∨ k = 36 ∨ k = 37 ∨ k = 38 ∨ k = 39 ∨ k = 40 ∨ k = 41 ∨ k = 42 ∨ k = 43 ∨ k = 44 ∨ k = 45 := by omega
+  rcases h with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact mem_subsetSums_of_subset (B := {3, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {14}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 14}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 14}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 6, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 14}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 6, 9}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 14}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 9, 14}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 9, 14}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 6, 21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 6, 9, 14}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 9, 21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 9, 21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {14, 21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 9, 21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 9, 21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 14, 21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 14, 21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 6, 9, 21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 14, 21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 14, 21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 6, 9, 21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 14, 21}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 6, 14, 21}) (by decide) (by decide)
+
+/-- Every integer of $[34, 111]$ is a subset sum of $\{3, 4, 6, 10, 15, 22, 34, 51\}$ (78 explicit witnesses, kernel-checked by `decide` on concrete `Finset ℤ` literals). A finite building block for `isGoodPair_of_run`'s run hypothesis. -/
+@[category textbook, AMS 11]
+theorem window_W6 : ∀ k : ℤ, 34 ≤ k → k ≤ 111 →
+    k ∈ subsetSums ((({3, 4, 6, 10, 15, 22, 34, 51} : Finset ℤ)) : Set ℤ) := by
+  intro k hk1 hk2
+  have h : k = 34 ∨ k = 35 ∨ k = 36 ∨ k = 37 ∨ k = 38 ∨ k = 39 ∨ k = 40 ∨ k = 41 ∨ k = 42 ∨ k = 43 ∨ k = 44 ∨ k = 45 ∨ k = 46 ∨ k = 47 ∨ k = 48 ∨ k = 49 ∨ k = 50 ∨ k = 51 ∨ k = 52 ∨ k = 53 ∨ k = 54 ∨ k = 55 ∨ k = 56 ∨ k = 57 ∨ k = 58 ∨ k = 59 ∨ k = 60 ∨ k = 61 ∨ k = 62 ∨ k = 63 ∨ k = 64 ∨ k = 65 ∨ k = 66 ∨ k = 67 ∨ k = 68 ∨ k = 69 ∨ k = 70 ∨ k = 71 ∨ k = 72 ∨ k = 73 ∨ k = 74 ∨ k = 75 ∨ k = 76 ∨ k = 77 ∨ k = 78 ∨ k = 79 ∨ k = 80 ∨ k = 81 ∨ k = 82 ∨ k = 83 ∨ k = 84 ∨ k = 85 ∨ k = 86 ∨ k = 87 ∨ k = 88 ∨ k = 89 ∨ k = 90 ∨ k = 91 ∨ k = 92 ∨ k = 93 ∨ k = 94 ∨ k = 95 ∨ k = 96 ∨ k = 97 ∨ k = 98 ∨ k = 99 ∨ k = 100 ∨ k = 101 ∨ k = 102 ∨ k = 103 ∨ k = 104 ∨ k = 105 ∨ k = 106 ∨ k = 107 ∨ k = 108 ∨ k = 109 ∨ k = 110 ∨ k = 111 := by omega
+  rcases h with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact mem_subsetSums_of_subset (B := {34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 10, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 10, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 10, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 6, 10, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 6, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 6, 10, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 6, 15, 22}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 10, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 10, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {15, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 10, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 15, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 15, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 6, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 10, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 10, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {15, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 10, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 10, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 15, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 15, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {15, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 15, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {22, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 15, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 6, 15, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 22, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 22, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 15, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 22, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 22, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 15, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 6, 22, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 22, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 10, 15, 22, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 10, 22, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 10, 22, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 10, 22, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 6, 10, 22, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 6, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 6, 10, 22, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 6, 15, 22, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 10, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 10, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {15, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 10, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 10, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 15, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 15, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 6, 10, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {6, 15, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {22, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 4, 6, 10, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 6, 15, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {3, 22, 34, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 22, 34, 51}) (by decide) (by decide)
+
+/-- Every integer of $[31, 120]$ is a subset sum of $\{4, 5, 8, 11, 16, 24, 34, 49\}$ (90 explicit witnesses, kernel-checked by `decide` on concrete `Finset ℤ` literals). A finite building block for `isGoodPair_of_run`'s run hypothesis. -/
+@[category textbook, AMS 11]
+theorem window_W7 : ∀ k : ℤ, 31 ≤ k → k ≤ 120 →
+    k ∈ subsetSums ((({4, 5, 8, 11, 16, 24, 34, 49} : Finset ℤ)) : Set ℤ) := by
+  intro k hk1 hk2
+  have h : k = 31 ∨ k = 32 ∨ k = 33 ∨ k = 34 ∨ k = 35 ∨ k = 36 ∨ k = 37 ∨ k = 38 ∨ k = 39 ∨ k = 40 ∨ k = 41 ∨ k = 42 ∨ k = 43 ∨ k = 44 ∨ k = 45 ∨ k = 46 ∨ k = 47 ∨ k = 48 ∨ k = 49 ∨ k = 50 ∨ k = 51 ∨ k = 52 ∨ k = 53 ∨ k = 54 ∨ k = 55 ∨ k = 56 ∨ k = 57 ∨ k = 58 ∨ k = 59 ∨ k = 60 ∨ k = 61 ∨ k = 62 ∨ k = 63 ∨ k = 64 ∨ k = 65 ∨ k = 66 ∨ k = 67 ∨ k = 68 ∨ k = 69 ∨ k = 70 ∨ k = 71 ∨ k = 72 ∨ k = 73 ∨ k = 74 ∨ k = 75 ∨ k = 76 ∨ k = 77 ∨ k = 78 ∨ k = 79 ∨ k = 80 ∨ k = 81 ∨ k = 82 ∨ k = 83 ∨ k = 84 ∨ k = 85 ∨ k = 86 ∨ k = 87 ∨ k = 88 ∨ k = 89 ∨ k = 90 ∨ k = 91 ∨ k = 92 ∨ k = 93 ∨ k = 94 ∨ k = 95 ∨ k = 96 ∨ k = 97 ∨ k = 98 ∨ k = 99 ∨ k = 100 ∨ k = 101 ∨ k = 102 ∨ k = 103 ∨ k = 104 ∨ k = 105 ∨ k = 106 ∨ k = 107 ∨ k = 108 ∨ k = 109 ∨ k = 110 ∨ k = 111 ∨ k = 112 ∨ k = 113 ∨ k = 114 ∨ k = 115 ∨ k = 116 ∨ k = 117 ∨ k = 118 ∨ k = 119 ∨ k = 120 := by omega
+  rcases h with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact mem_subsetSums_of_subset (B := {4, 11, 16}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {8, 24}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 5, 24}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {11, 24}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 8, 24}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 8, 24}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {16, 24}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 5, 8, 24}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {8, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 5, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 16, 24}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {11, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 8, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 8, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {8, 16, 24}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {16, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {11, 16, 24}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 8, 16, 24}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 16, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 11, 16, 24}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {8, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {24, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 5, 16, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {11, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 8, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 24, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 24, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 11, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {16, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {8, 24, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 5, 24, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {8, 11, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 16, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 16, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 8, 24, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 8, 11, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {24, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {16, 24, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 5, 8, 24, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {11, 16, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 24, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 24, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 16, 24, 34}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 11, 16, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {8, 24, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 5, 24, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {11, 24, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 8, 24, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 8, 24, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {16, 24, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 5, 8, 24, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {8, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 5, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 16, 24, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {11, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 8, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 8, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {8, 16, 24, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 11, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {16, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {11, 16, 24, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 8, 16, 24, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {8, 11, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 16, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 16, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 11, 16, 24, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 8, 11, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {24, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 5, 16, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 5, 11, 16, 24, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {11, 16, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 24, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 24, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 8, 11, 16, 24, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 11, 16, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {8, 24, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 5, 24, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 5, 8, 11, 16, 24, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {11, 24, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {4, 8, 24, 34, 49}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 8, 24, 34, 49}) (by decide) (by decide)
+
+/-- Every integer of $[47, 146]$ is a subset sum of $\{5, 7, 10, 14, 21, 30, 43, 63\}$ (100 explicit witnesses, kernel-checked by `decide` on concrete `Finset ℤ` literals). A finite building block for `isGoodPair_of_run`'s run hypothesis. -/
+@[category textbook, AMS 11]
+theorem window_W8 : ∀ k : ℤ, 47 ≤ k → k ≤ 146 →
+    k ∈ subsetSums ((({5, 7, 10, 14, 21, 30, 43, 63} : Finset ℤ)) : Set ℤ) := by
+  intro k hk1 hk2
+  have h : k = 47 ∨ k = 48 ∨ k = 49 ∨ k = 50 ∨ k = 51 ∨ k = 52 ∨ k = 53 ∨ k = 54 ∨ k = 55 ∨ k = 56 ∨ k = 57 ∨ k = 58 ∨ k = 59 ∨ k = 60 ∨ k = 61 ∨ k = 62 ∨ k = 63 ∨ k = 64 ∨ k = 65 ∨ k = 66 ∨ k = 67 ∨ k = 68 ∨ k = 69 ∨ k = 70 ∨ k = 71 ∨ k = 72 ∨ k = 73 ∨ k = 74 ∨ k = 75 ∨ k = 76 ∨ k = 77 ∨ k = 78 ∨ k = 79 ∨ k = 80 ∨ k = 81 ∨ k = 82 ∨ k = 83 ∨ k = 84 ∨ k = 85 ∨ k = 86 ∨ k = 87 ∨ k = 88 ∨ k = 89 ∨ k = 90 ∨ k = 91 ∨ k = 92 ∨ k = 93 ∨ k = 94 ∨ k = 95 ∨ k = 96 ∨ k = 97 ∨ k = 98 ∨ k = 99 ∨ k = 100 ∨ k = 101 ∨ k = 102 ∨ k = 103 ∨ k = 104 ∨ k = 105 ∨ k = 106 ∨ k = 107 ∨ k = 108 ∨ k = 109 ∨ k = 110 ∨ k = 111 ∨ k = 112 ∨ k = 113 ∨ k = 114 ∨ k = 115 ∨ k = 116 ∨ k = 117 ∨ k = 118 ∨ k = 119 ∨ k = 120 ∨ k = 121 ∨ k = 122 ∨ k = 123 ∨ k = 124 ∨ k = 125 ∨ k = 126 ∨ k = 127 ∨ k = 128 ∨ k = 129 ∨ k = 130 ∨ k = 131 ∨ k = 132 ∨ k = 133 ∨ k = 134 ∨ k = 135 ∨ k = 136 ∨ k = 137 ∨ k = 138 ∨ k = 139 ∨ k = 140 ∨ k = 141 ∨ k = 142 ∨ k = 143 ∨ k = 144 ∨ k = 145 ∨ k = 146 := by omega
+  rcases h with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact mem_subsetSums_of_subset (B := {7, 10, 30}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 14, 30}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {21, 30}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 7, 10, 30}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 14, 30}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 7, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 21, 30}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {14, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 10, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 10, 14, 30}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 10, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 21, 30}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 14, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {21, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {14, 21, 30}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 10, 21, 30}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 14, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 21, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 21, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 10, 14, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 21, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 7, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 7, 21, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {14, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 10, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 10, 21, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 10, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 10, 21, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 14, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 30, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {21, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 7, 10, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 7, 10, 21, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 14, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 10, 30, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 21, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 10, 30, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 21, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 10, 14, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 21, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 7, 10, 30, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 7, 21, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 14, 30, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 10, 21, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 10, 21, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 10, 14, 30, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 21, 30, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 7, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {14, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 10, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 10, 21, 30, 43}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 10, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 14, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {21, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 7, 10, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 14, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 7, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 21, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {14, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 10, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 10, 14, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 10, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 21, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 14, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 7, 21, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {21, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {14, 21, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 10, 21, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 14, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 10, 21, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 21, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 14, 21, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 21, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 10, 14, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {30, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 21, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 14, 21, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 7, 21, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 7, 14, 21, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 30, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {5, 10, 21, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 30, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 10, 21, 43, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 10, 14, 21, 30, 63}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 30, 43, 63}) (by decide) (by decide)
+
+/-- Every integer of $[42, 117]$ is a subset sum of $\{7, 9, 13, 18, 26, 36, 50\}$ (76 explicit witnesses, kernel-checked by `decide` on concrete `Finset ℤ` literals). A finite building block for `isGoodPair_of_run`'s run hypothesis. -/
+@[category textbook, AMS 11]
+theorem window_W9 : ∀ k : ℤ, 42 ≤ k → k ≤ 117 →
+    k ∈ subsetSums ((({7, 9, 13, 18, 26, 36, 50} : Finset ℤ)) : Set ℤ) := by
+  intro k hk1 hk2
+  have h : k = 42 ∨ k = 43 ∨ k = 44 ∨ k = 45 ∨ k = 46 ∨ k = 47 ∨ k = 48 ∨ k = 49 ∨ k = 50 ∨ k = 51 ∨ k = 52 ∨ k = 53 ∨ k = 54 ∨ k = 55 ∨ k = 56 ∨ k = 57 ∨ k = 58 ∨ k = 59 ∨ k = 60 ∨ k = 61 ∨ k = 62 ∨ k = 63 ∨ k = 64 ∨ k = 65 ∨ k = 66 ∨ k = 67 ∨ k = 68 ∨ k = 69 ∨ k = 70 ∨ k = 71 ∨ k = 72 ∨ k = 73 ∨ k = 74 ∨ k = 75 ∨ k = 76 ∨ k = 77 ∨ k = 78 ∨ k = 79 ∨ k = 80 ∨ k = 81 ∨ k = 82 ∨ k = 83 ∨ k = 84 ∨ k = 85 ∨ k = 86 ∨ k = 87 ∨ k = 88 ∨ k = 89 ∨ k = 90 ∨ k = 91 ∨ k = 92 ∨ k = 93 ∨ k = 94 ∨ k = 95 ∨ k = 96 ∨ k = 97 ∨ k = 98 ∨ k = 99 ∨ k = 100 ∨ k = 101 ∨ k = 102 ∨ k = 103 ∨ k = 104 ∨ k = 105 ∨ k = 106 ∨ k = 107 ∨ k = 108 ∨ k = 109 ∨ k = 110 ∨ k = 111 ∨ k = 112 ∨ k = 113 ∨ k = 114 ∨ k = 115 ∨ k = 116 ∨ k = 117 := by omega
+  rcases h with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact mem_subsetSums_of_subset (B := {7, 9, 26}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {18, 26}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 13, 26}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9, 13, 18}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 13, 26}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {13, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 18, 26}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 18, 26}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {18, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9, 13, 26}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 13, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 13, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9, 18, 26}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 18, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {26, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {13, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 13, 18, 26}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9, 13, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {13, 18, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {18, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 26, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 13, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 26, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 13, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9, 13, 18, 26}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 13, 18, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 18, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {26, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 18, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9, 26, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9, 13, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {18, 26, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {13, 18, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 13, 26, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 26, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9, 18, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 26, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {36, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 18, 26, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 13, 18, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {13, 26, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 13, 18, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9, 13, 26, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9, 26, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 36, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {18, 26, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 36, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 13, 26, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9, 13, 18, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 13, 26, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {13, 36, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 13, 18, 26, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 18, 26, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9, 36, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 18, 26, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {18, 36, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9, 13, 26, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 13, 36, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {13, 18, 26, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 13, 36, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9, 13, 18, 26, 36}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9, 18, 26, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 18, 36, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {26, 36, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 18, 36, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 13, 18, 26, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {7, 9, 13, 36, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {9, 13, 18, 26, 50}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {13, 18, 36, 50}) (by decide) (by decide)
+
+/-- Every integer of $[69, 136]$ is a subset sum of $\{10, 12, 15, 20, 25, 32, 40, 51\}$ (68 explicit witnesses, kernel-checked by `decide` on concrete `Finset ℤ` literals). A finite building block for `isGoodPair_of_run`'s run hypothesis. -/
+@[category textbook, AMS 11]
+theorem window_W10 : ∀ k : ℤ, 69 ≤ k → k ≤ 136 →
+    k ∈ subsetSums ((({10, 12, 15, 20, 25, 32, 40, 51} : Finset ℤ)) : Set ℤ) := by
+  intro k hk1 hk2
+  have h : k = 69 ∨ k = 70 ∨ k = 71 ∨ k = 72 ∨ k = 73 ∨ k = 74 ∨ k = 75 ∨ k = 76 ∨ k = 77 ∨ k = 78 ∨ k = 79 ∨ k = 80 ∨ k = 81 ∨ k = 82 ∨ k = 83 ∨ k = 84 ∨ k = 85 ∨ k = 86 ∨ k = 87 ∨ k = 88 ∨ k = 89 ∨ k = 90 ∨ k = 91 ∨ k = 92 ∨ k = 93 ∨ k = 94 ∨ k = 95 ∨ k = 96 ∨ k = 97 ∨ k = 98 ∨ k = 99 ∨ k = 100 ∨ k = 101 ∨ k = 102 ∨ k = 103 ∨ k = 104 ∨ k = 105 ∨ k = 106 ∨ k = 107 ∨ k = 108 ∨ k = 109 ∨ k = 110 ∨ k = 111 ∨ k = 112 ∨ k = 113 ∨ k = 114 ∨ k = 115 ∨ k = 116 ∨ k = 117 ∨ k = 118 ∨ k = 119 ∨ k = 120 ∨ k = 121 ∨ k = 122 ∨ k = 123 ∨ k = 124 ∨ k = 125 ∨ k = 126 ∨ k = 127 ∨ k = 128 ∨ k = 129 ∨ k = 130 ∨ k = 131 ∨ k = 132 ∨ k = 133 ∨ k = 134 ∨ k = 135 ∨ k = 136 := by omega
+  rcases h with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+  · exact mem_subsetSums_of_subset (B := {12, 25, 32}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 20, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {20, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 12, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 12, 20, 32}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 25, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {25, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 25, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 15, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 12, 25, 32}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {15, 25, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 20, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {32, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {20, 25, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 25, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {15, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 25, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 20, 25, 32}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 15, 25, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {40, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {20, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 32, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 12, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 32, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {20, 25, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {25, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {15, 32, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 15, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {15, 20, 25, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 40, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 20, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 40, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 20, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 12, 32, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {15, 40, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 25, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {25, 32, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 25, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 15, 32, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {20, 40, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {15, 25, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 12, 40, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 12, 20, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 20, 32, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {25, 40, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {20, 25, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 25, 32, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 12, 25, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 25, 32, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 20, 40, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 15, 25, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {32, 40, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 15, 25, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 12, 20, 32, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 25, 40, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 20, 25, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 25, 40, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 20, 25, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 12, 25, 32, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {15, 25, 40, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {15, 20, 25, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 32, 40, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {10, 12, 15, 25, 32, 40}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {12, 32, 40, 51}) (by decide) (by decide)
+  · exact mem_subsetSums_of_subset (B := {20, 25, 40, 51}) (by decide) (by decide)
+/-- **First good pair strictly outside the near-one strip.** $(5/2, 7/5)$ is a good pair:
+$N_0 = 3$, the floor sequence gives the distinct values $\{2, 3, 4\}$, then $a_3 = 6$ exactly
+fits the run $[2, 7]$ (`window_two_four`). Since $\lfloor 5/2\rfloor = 2$, the strip
+`isGoodPair_of_pos_of_lt_two` only reaches $\alpha \le 1 + 1/(2\cdot 2+2) = 7/6 \approx 1.167$;
+here $\alpha = 7/5 = 1.4$ is $70\%$ of the way across the open interval $(7/6, 3/2)$. Instance of
+`isGoodPair_of_run`. -/
+@[category research solved, AMS 11]
+theorem isGoodPair_five_halves_seven_fifths : IsGoodPair (5 / 2 : ℝ) (7 / 5 : ℝ) := by
+  have e0 : ⌊(5 / 2 : ℝ) * (7 / 5) ^ (0 : ℕ)⌋ = 2 := by rw [Int.floor_eq_iff]; norm_num
+  have e1 : ⌊(5 / 2 : ℝ) * (7 / 5) ^ (1 : ℕ)⌋ = 3 := by rw [Int.floor_eq_iff]; norm_num
+  have e2 : ⌊(5 / 2 : ℝ) * (7 / 5) ^ (2 : ℕ)⌋ = 4 := by rw [Int.floor_eq_iff]; norm_num
+  have e3 : ⌊(5 / 2 : ℝ) * (7 / 5) ^ (3 : ℕ)⌋ = 6 := by rw [Int.floor_eq_iff]; norm_num
+  have himg : (Finset.range 3).image (fun n : ℕ => ⌊(5 / 2 : ℝ) * (7 / 5) ^ n⌋) = {2, 3, 4} := by
+    rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_zero]
+    simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2]
+    decide
+  refine isGoodPair_of_run (5 / 2) (7 / 5) (by norm_num) (by norm_num) (by norm_num) 3 2 7 ?_ ?_ ?_
+  · rw [himg, e3]; decide
+  · rw [himg]; exact window_two_four
+  · omega
+
+/-- **Reaching $\alpha = 1.4999$, deep toward the $3/2$ endpoint (headline, $t = 2$).**
+$(2, 14999/10000)$ is a good pair: $N_0 = 8$, distinct values
+$\{2, 4, 6, 10, 15, 22, 34\}$, then $a_8 = 51$ fits the run $[14, 79]$ (`window_W2`). Instance of
+`isGoodPair_of_run`, showing the band can be filled arbitrarily close to $3/2$ point by point even
+though the full band $t \ge 2$, $1 < \alpha < 3/2$ remains open. -/
+@[category research solved, AMS 11]
+theorem isGoodPair_two_alpha_1_4999 : IsGoodPair (2 : ℝ) (14999 / 10000 : ℝ) := by
+  have e0 : ⌊(2 : ℝ) * (14999 / 10000) ^ (0 : ℕ)⌋ = 2 := by rw [Int.floor_eq_iff]; norm_num
+  have e1 : ⌊(2 : ℝ) * (14999 / 10000) ^ (1 : ℕ)⌋ = 2 := by rw [Int.floor_eq_iff]; norm_num
+  have e2 : ⌊(2 : ℝ) * (14999 / 10000) ^ (2 : ℕ)⌋ = 4 := by rw [Int.floor_eq_iff]; norm_num
+  have e3 : ⌊(2 : ℝ) * (14999 / 10000) ^ (3 : ℕ)⌋ = 6 := by rw [Int.floor_eq_iff]; norm_num
+  have e4 : ⌊(2 : ℝ) * (14999 / 10000) ^ (4 : ℕ)⌋ = 10 := by rw [Int.floor_eq_iff]; norm_num
+  have e5 : ⌊(2 : ℝ) * (14999 / 10000) ^ (5 : ℕ)⌋ = 15 := by rw [Int.floor_eq_iff]; norm_num
+  have e6 : ⌊(2 : ℝ) * (14999 / 10000) ^ (6 : ℕ)⌋ = 22 := by rw [Int.floor_eq_iff]; norm_num
+  have e7 : ⌊(2 : ℝ) * (14999 / 10000) ^ (7 : ℕ)⌋ = 34 := by rw [Int.floor_eq_iff]; norm_num
+  have e8 : ⌊(2 : ℝ) * (14999 / 10000) ^ (8 : ℕ)⌋ = 51 := by rw [Int.floor_eq_iff]; norm_num
+  have himg : (Finset.range 8).image (fun n : ℕ => ⌊(2 : ℝ) * (14999 / 10000) ^ n⌋) = {2, 4, 6, 10, 15, 22, 34} := by
+    rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_zero]
+    simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3, e4, e5, e6, e7]
+    decide
+  refine isGoodPair_of_run (2 : ℝ) (14999 / 10000 : ℝ) (by norm_num) (by norm_num) (by norm_num) 8 14 79 ?_ ?_ ?_
+  · rw [himg, e8]; decide
+  · rw [himg]; exact window_W2
+  · omega
+
+/-- **Reaching $\alpha = 1.4999$, deep toward the $3/2$ endpoint (headline, $t = 5/2$).**
+$(5/2, 14999/10000)$ is a good pair: $N_0 = 8$, distinct values
+$\{2, 3, 5, 8, 12, 18, 28, 42\}$, then $a_8 = 64$ fits the run $[25, 93]$ (`window_W4`). Instance
+of `isGoodPair_of_run`; see `isGoodPair_two_alpha_1_4999` for the significance of this frontier. -/
+@[category research solved, AMS 11]
+theorem isGoodPair_five_halves_alpha_1_4999 : IsGoodPair (5 / 2 : ℝ) (14999 / 10000 : ℝ) := by
+  have e0 : ⌊(5 / 2 : ℝ) * (14999 / 10000) ^ (0 : ℕ)⌋ = 2 := by rw [Int.floor_eq_iff]; norm_num
+  have e1 : ⌊(5 / 2 : ℝ) * (14999 / 10000) ^ (1 : ℕ)⌋ = 3 := by rw [Int.floor_eq_iff]; norm_num
+  have e2 : ⌊(5 / 2 : ℝ) * (14999 / 10000) ^ (2 : ℕ)⌋ = 5 := by rw [Int.floor_eq_iff]; norm_num
+  have e3 : ⌊(5 / 2 : ℝ) * (14999 / 10000) ^ (3 : ℕ)⌋ = 8 := by rw [Int.floor_eq_iff]; norm_num
+  have e4 : ⌊(5 / 2 : ℝ) * (14999 / 10000) ^ (4 : ℕ)⌋ = 12 := by rw [Int.floor_eq_iff]; norm_num
+  have e5 : ⌊(5 / 2 : ℝ) * (14999 / 10000) ^ (5 : ℕ)⌋ = 18 := by rw [Int.floor_eq_iff]; norm_num
+  have e6 : ⌊(5 / 2 : ℝ) * (14999 / 10000) ^ (6 : ℕ)⌋ = 28 := by rw [Int.floor_eq_iff]; norm_num
+  have e7 : ⌊(5 / 2 : ℝ) * (14999 / 10000) ^ (7 : ℕ)⌋ = 42 := by rw [Int.floor_eq_iff]; norm_num
+  have e8 : ⌊(5 / 2 : ℝ) * (14999 / 10000) ^ (8 : ℕ)⌋ = 64 := by rw [Int.floor_eq_iff]; norm_num
+  have himg : (Finset.range 8).image (fun n : ℕ => ⌊(5 / 2 : ℝ) * (14999 / 10000) ^ n⌋) = {2, 3, 5, 8, 12, 18, 28, 42} := by
+    rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_zero]
+    simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3, e4, e5, e6, e7]
+    decide
+  refine isGoodPair_of_run (5 / 2 : ℝ) (14999 / 10000 : ℝ) (by norm_num) (by norm_num) (by norm_num) 8 25 93 ?_ ?_ ?_
+  · rw [himg, e8]; decide
+  · rw [himg]; exact window_W4
+  · omega
+
+/-- **Reaching $\alpha = 1.4999$, deep toward the $3/2$ endpoint (headline, $t = 3$).**
+$(3, 14999/10000)$ is a good pair: $N_0 = 8$, distinct values
+$\{3, 4, 6, 10, 15, 22, 34, 51\}$, then $a_8 = 76$ fits the run $[34, 111]$ (`window_W6`). Instance
+of `isGoodPair_of_run`; see `isGoodPair_two_alpha_1_4999` for the significance of this frontier. -/
+@[category research solved, AMS 11]
+theorem isGoodPair_three_alpha_1_4999 : IsGoodPair (3 : ℝ) (14999 / 10000 : ℝ) := by
+  have e0 : ⌊(3 : ℝ) * (14999 / 10000) ^ (0 : ℕ)⌋ = 3 := by rw [Int.floor_eq_iff]; norm_num
+  have e1 : ⌊(3 : ℝ) * (14999 / 10000) ^ (1 : ℕ)⌋ = 4 := by rw [Int.floor_eq_iff]; norm_num
+  have e2 : ⌊(3 : ℝ) * (14999 / 10000) ^ (2 : ℕ)⌋ = 6 := by rw [Int.floor_eq_iff]; norm_num
+  have e3 : ⌊(3 : ℝ) * (14999 / 10000) ^ (3 : ℕ)⌋ = 10 := by rw [Int.floor_eq_iff]; norm_num
+  have e4 : ⌊(3 : ℝ) * (14999 / 10000) ^ (4 : ℕ)⌋ = 15 := by rw [Int.floor_eq_iff]; norm_num
+  have e5 : ⌊(3 : ℝ) * (14999 / 10000) ^ (5 : ℕ)⌋ = 22 := by rw [Int.floor_eq_iff]; norm_num
+  have e6 : ⌊(3 : ℝ) * (14999 / 10000) ^ (6 : ℕ)⌋ = 34 := by rw [Int.floor_eq_iff]; norm_num
+  have e7 : ⌊(3 : ℝ) * (14999 / 10000) ^ (7 : ℕ)⌋ = 51 := by rw [Int.floor_eq_iff]; norm_num
+  have e8 : ⌊(3 : ℝ) * (14999 / 10000) ^ (8 : ℕ)⌋ = 76 := by rw [Int.floor_eq_iff]; norm_num
+  have himg : (Finset.range 8).image (fun n : ℕ => ⌊(3 : ℝ) * (14999 / 10000) ^ n⌋) = {3, 4, 6, 10, 15, 22, 34, 51} := by
+    rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_zero]
+    simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3, e4, e5, e6, e7]
+    decide
+  refine isGoodPair_of_run (3 : ℝ) (14999 / 10000 : ℝ) (by norm_num) (by norm_num) (by norm_num) 8 34 111 ?_ ?_ ?_
+  · rw [himg, e8]; decide
+  · rw [himg]; exact window_W6
+  · omega
+/-- **Seventeen further good pairs, same reduction, compactly bundled.** All instantiate
+`isGoodPair_of_run` exactly like the four headline results above (explicit floor values up to a
+new rank $N_0$, matched against a finite window certificate); bundled into one statement so the
+family is reviewed as a single declaration rather than seventeen near-identical ones. In the order
+listed: $t = 5/2$ at $\alpha = 4/3$; $t = 2$ at $\alpha \in \{4/3, 5/4, 112/75, 299/200,
+1499/1000\}$; $t = 5/2$ at $\alpha \in \{29/20, 449/300\}$; $t = 3$ at $\alpha \in \{4/3, 5/4,
+37/25, 89/60, 1499/1000\}$; $t = 4$ at $\alpha = 76/53$; $t = 5$ at $\alpha = 79/55$; $t = 7$ at
+$\alpha = 71/51$; $t = 10$ at $\alpha = 43/34$. Together with the four headline pairs, this gives
+**21 good pairs total** with $t \in \{2, 5/2, 3, 4, 5, 7, 10\}$ and $\alpha$ ranging from $5/4$ up
+to $14999/10000$, all strictly outside the strip $\alpha \le 1 + 1/(2\lfloor t\rfloor+2)$ covered
+by `isGoodPair_of_pos_of_lt_two`.
+
+A **partial result** on the open Erdős Problem 349: these are 17 more explicit instances of
+`isGoodPair_of_run`, never a claim about a whole region. The full band $t \ge 2$, $1 < \alpha <
+3/2$ remains open.
+
+The proof is recorded via the `formal_proof` mechanism rather than written inline, as it exceeds
+the repository's proof-length guideline. -/
+@[category research solved, AMS 11]
+theorem isGoodPair_run_further_instances :
+    IsGoodPair (5 / 2 : ℝ) (4 / 3 : ℝ) ∧
+    IsGoodPair (2 : ℝ) (4 / 3 : ℝ) ∧
+    IsGoodPair (2 : ℝ) (5 / 4 : ℝ) ∧
+    IsGoodPair (3 : ℝ) (4 / 3 : ℝ) ∧
+    IsGoodPair (3 : ℝ) (5 / 4 : ℝ) ∧
+    IsGoodPair (2 : ℝ) (112 / 75 : ℝ) ∧
+    IsGoodPair (2 : ℝ) (299 / 200 : ℝ) ∧
+    IsGoodPair (2 : ℝ) (1499 / 1000 : ℝ) ∧
+    IsGoodPair (5 / 2 : ℝ) (29 / 20 : ℝ) ∧
+    IsGoodPair (5 / 2 : ℝ) (449 / 300 : ℝ) ∧
+    IsGoodPair (3 : ℝ) (37 / 25 : ℝ) ∧
+    IsGoodPair (3 : ℝ) (89 / 60 : ℝ) ∧
+    IsGoodPair (3 : ℝ) (1499 / 1000 : ℝ) ∧
+    IsGoodPair (4 : ℝ) (76 / 53 : ℝ) ∧
+    IsGoodPair (5 : ℝ) (79 / 55 : ℝ) ∧
+    IsGoodPair (7 : ℝ) (71 / 51 : ℝ) ∧
+    IsGoodPair (10 : ℝ) (43 / 34 : ℝ) := by
+  refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · have e0 : ⌊(5 / 2 : ℝ) * (4 / 3) ^ (0 : ℕ)⌋ = 2 := by rw [Int.floor_eq_iff]; norm_num
+    have e1 : ⌊(5 / 2 : ℝ) * (4 / 3) ^ (1 : ℕ)⌋ = 3 := by rw [Int.floor_eq_iff]; norm_num
+    have e2 : ⌊(5 / 2 : ℝ) * (4 / 3) ^ (2 : ℕ)⌋ = 4 := by rw [Int.floor_eq_iff]; norm_num
+    have e3 : ⌊(5 / 2 : ℝ) * (4 / 3) ^ (3 : ℕ)⌋ = 5 := by rw [Int.floor_eq_iff]; norm_num
+    have himg : (Finset.range 3).image (fun n : ℕ => ⌊(5 / 2 : ℝ) * (4 / 3) ^ n⌋) = {2, 3, 4} := by
+      rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_zero]
+      simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2]
+      decide
+    refine isGoodPair_of_run (5 / 2) (4 / 3) (by norm_num) (by norm_num) (by norm_num) 3 2 7 ?_ ?_ ?_
+    · rw [himg, e3]; decide
+    · rw [himg]; exact window_two_four
+    · omega
+  · have e0 : ⌊(2 : ℝ) * (4 / 3) ^ (0 : ℕ)⌋ = 2 := by rw [Int.floor_eq_iff]; norm_num
+    have e1 : ⌊(2 : ℝ) * (4 / 3) ^ (1 : ℕ)⌋ = 2 := by rw [Int.floor_eq_iff]; norm_num
+    have e2 : ⌊(2 : ℝ) * (4 / 3) ^ (2 : ℕ)⌋ = 3 := by rw [Int.floor_eq_iff]; norm_num
+    have e3 : ⌊(2 : ℝ) * (4 / 3) ^ (3 : ℕ)⌋ = 4 := by rw [Int.floor_eq_iff]; norm_num
+    have e4 : ⌊(2 : ℝ) * (4 / 3) ^ (4 : ℕ)⌋ = 6 := by rw [Int.floor_eq_iff]; norm_num
+    have himg : (Finset.range 4).image (fun n : ℕ => ⌊(2 : ℝ) * (4 / 3) ^ n⌋) = {2, 3, 4} := by
+      rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one,
+        Finset.range_zero]
+      simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3]
+      decide
+    refine isGoodPair_of_run (2) (4 / 3) (by norm_num) (by norm_num) (by norm_num) 4 2 7 ?_ ?_ ?_
+    · rw [himg, e4]; decide
+    · rw [himg]; exact window_two_four
+    · omega
+  · have e0 : ⌊(2 : ℝ) * (5 / 4) ^ (0 : ℕ)⌋ = 2 := by rw [Int.floor_eq_iff]; norm_num
+    have e1 : ⌊(2 : ℝ) * (5 / 4) ^ (1 : ℕ)⌋ = 2 := by rw [Int.floor_eq_iff]; norm_num
+    have e2 : ⌊(2 : ℝ) * (5 / 4) ^ (2 : ℕ)⌋ = 3 := by rw [Int.floor_eq_iff]; norm_num
+    have e3 : ⌊(2 : ℝ) * (5 / 4) ^ (3 : ℕ)⌋ = 3 := by rw [Int.floor_eq_iff]; norm_num
+    have e4 : ⌊(2 : ℝ) * (5 / 4) ^ (4 : ℕ)⌋ = 4 := by rw [Int.floor_eq_iff]; norm_num
+    have e5 : ⌊(2 : ℝ) * (5 / 4) ^ (5 : ℕ)⌋ = 6 := by rw [Int.floor_eq_iff]; norm_num
+    have himg : (Finset.range 5).image (fun n : ℕ => ⌊(2 : ℝ) * (5 / 4) ^ n⌋) = {2, 3, 4} := by
+      rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one,
+        Finset.range_add_one, Finset.range_zero]
+      simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3, e4]
+      decide
+    refine isGoodPair_of_run (2) (5 / 4) (by norm_num) (by norm_num) (by norm_num) 5 2 7 ?_ ?_ ?_
+    · rw [himg, e5]; decide
+    · rw [himg]; exact window_two_four
+    · omega
+  · have e0 : ⌊(3 : ℝ) * (4 / 3) ^ (0 : ℕ)⌋ = 3 := by rw [Int.floor_eq_iff]; norm_num
+    have e1 : ⌊(3 : ℝ) * (4 / 3) ^ (1 : ℕ)⌋ = 4 := by rw [Int.floor_eq_iff]; norm_num
+    have e2 : ⌊(3 : ℝ) * (4 / 3) ^ (2 : ℕ)⌋ = 5 := by rw [Int.floor_eq_iff]; norm_num
+    have e3 : ⌊(3 : ℝ) * (4 / 3) ^ (3 : ℕ)⌋ = 7 := by rw [Int.floor_eq_iff]; norm_num
+    have e4 : ⌊(3 : ℝ) * (4 / 3) ^ (4 : ℕ)⌋ = 9 := by rw [Int.floor_eq_iff]; norm_num
+    have e5 : ⌊(3 : ℝ) * (4 / 3) ^ (5 : ℕ)⌋ = 12 := by rw [Int.floor_eq_iff]; norm_num
+    have himg : (Finset.range 5).image (fun n : ℕ => ⌊(3 : ℝ) * (4 / 3) ^ n⌋) = {3, 4, 5, 7, 9} := by
+      rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one,
+        Finset.range_add_one, Finset.range_zero]
+      simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3, e4]
+      decide
+    refine isGoodPair_of_run (3) (4 / 3) (by norm_num) (by norm_num) (by norm_num) 5 7 21 ?_ ?_ ?_
+    · rw [himg, e5]; decide
+    · rw [himg]; exact window_three_nine
+    · omega
+  · have e0 : ⌊(3 : ℝ) * (5 / 4) ^ (0 : ℕ)⌋ = 3 := by rw [Int.floor_eq_iff]; norm_num
+    have e1 : ⌊(3 : ℝ) * (5 / 4) ^ (1 : ℕ)⌋ = 3 := by rw [Int.floor_eq_iff]; norm_num
+    have e2 : ⌊(3 : ℝ) * (5 / 4) ^ (2 : ℕ)⌋ = 4 := by rw [Int.floor_eq_iff]; norm_num
+    have e3 : ⌊(3 : ℝ) * (5 / 4) ^ (3 : ℕ)⌋ = 5 := by rw [Int.floor_eq_iff]; norm_num
+    have e4 : ⌊(3 : ℝ) * (5 / 4) ^ (4 : ℕ)⌋ = 7 := by rw [Int.floor_eq_iff]; norm_num
+    have e5 : ⌊(3 : ℝ) * (5 / 4) ^ (5 : ℕ)⌋ = 9 := by rw [Int.floor_eq_iff]; norm_num
+    have e6 : ⌊(3 : ℝ) * (5 / 4) ^ (6 : ℕ)⌋ = 11 := by rw [Int.floor_eq_iff]; norm_num
+    have himg : (Finset.range 6).image (fun n : ℕ => ⌊(3 : ℝ) * (5 / 4) ^ n⌋) = {3, 4, 5, 7, 9} := by
+      rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one,
+        Finset.range_add_one, Finset.range_add_one, Finset.range_zero]
+      simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3, e4, e5]
+      decide
+    refine isGoodPair_of_run (3) (5 / 4) (by norm_num) (by norm_num) (by norm_num) 6 7 21 ?_ ?_ ?_
+    · rw [himg, e6]; decide
+    · rw [himg]; exact window_three_nine
+    · omega
+  · have e0 : ⌊(2 : ℝ) * (112 / 75) ^ (0 : ℕ)⌋ = 2 := by rw [Int.floor_eq_iff]; norm_num
+    have e1 : ⌊(2 : ℝ) * (112 / 75) ^ (1 : ℕ)⌋ = 2 := by rw [Int.floor_eq_iff]; norm_num
+    have e2 : ⌊(2 : ℝ) * (112 / 75) ^ (2 : ℕ)⌋ = 4 := by rw [Int.floor_eq_iff]; norm_num
+    have e3 : ⌊(2 : ℝ) * (112 / 75) ^ (3 : ℕ)⌋ = 6 := by rw [Int.floor_eq_iff]; norm_num
+    have e4 : ⌊(2 : ℝ) * (112 / 75) ^ (4 : ℕ)⌋ = 9 := by rw [Int.floor_eq_iff]; norm_num
+    have e5 : ⌊(2 : ℝ) * (112 / 75) ^ (5 : ℕ)⌋ = 14 := by rw [Int.floor_eq_iff]; norm_num
+    have e6 : ⌊(2 : ℝ) * (112 / 75) ^ (6 : ℕ)⌋ = 22 := by rw [Int.floor_eq_iff]; norm_num
+    have e7 : ⌊(2 : ℝ) * (112 / 75) ^ (7 : ℕ)⌋ = 33 := by rw [Int.floor_eq_iff]; norm_num
+    have himg : (Finset.range 7).image (fun n : ℕ => ⌊(2 : ℝ) * (112 / 75) ^ n⌋) = {2, 4, 6, 9, 14, 22} := by
+      rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_zero]
+      simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3, e4, e5, e6]
+      decide
+    refine isGoodPair_of_run (2 : ℝ) (112 / 75 : ℝ) (by norm_num) (by norm_num) (by norm_num) 7 8 49 ?_ ?_ ?_
+    · rw [himg, e7]; decide
+    · rw [himg]; exact window_W1
+    · omega
+  · have e0 : ⌊(2 : ℝ) * (299 / 200) ^ (0 : ℕ)⌋ = 2 := by rw [Int.floor_eq_iff]; norm_num
+    have e1 : ⌊(2 : ℝ) * (299 / 200) ^ (1 : ℕ)⌋ = 2 := by rw [Int.floor_eq_iff]; norm_num
+    have e2 : ⌊(2 : ℝ) * (299 / 200) ^ (2 : ℕ)⌋ = 4 := by rw [Int.floor_eq_iff]; norm_num
+    have e3 : ⌊(2 : ℝ) * (299 / 200) ^ (3 : ℕ)⌋ = 6 := by rw [Int.floor_eq_iff]; norm_num
+    have e4 : ⌊(2 : ℝ) * (299 / 200) ^ (4 : ℕ)⌋ = 9 := by rw [Int.floor_eq_iff]; norm_num
+    have e5 : ⌊(2 : ℝ) * (299 / 200) ^ (5 : ℕ)⌋ = 14 := by rw [Int.floor_eq_iff]; norm_num
+    have e6 : ⌊(2 : ℝ) * (299 / 200) ^ (6 : ℕ)⌋ = 22 := by rw [Int.floor_eq_iff]; norm_num
+    have e7 : ⌊(2 : ℝ) * (299 / 200) ^ (7 : ℕ)⌋ = 33 := by rw [Int.floor_eq_iff]; norm_num
+    have himg : (Finset.range 7).image (fun n : ℕ => ⌊(2 : ℝ) * (299 / 200) ^ n⌋) = {2, 4, 6, 9, 14, 22} := by
+      rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_zero]
+      simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3, e4, e5, e6]
+      decide
+    refine isGoodPair_of_run (2 : ℝ) (299 / 200 : ℝ) (by norm_num) (by norm_num) (by norm_num) 7 8 49 ?_ ?_ ?_
+    · rw [himg, e7]; decide
+    · rw [himg]; exact window_W1
+    · omega
+  · have e0 : ⌊(2 : ℝ) * (1499 / 1000) ^ (0 : ℕ)⌋ = 2 := by rw [Int.floor_eq_iff]; norm_num
+    have e1 : ⌊(2 : ℝ) * (1499 / 1000) ^ (1 : ℕ)⌋ = 2 := by rw [Int.floor_eq_iff]; norm_num
+    have e2 : ⌊(2 : ℝ) * (1499 / 1000) ^ (2 : ℕ)⌋ = 4 := by rw [Int.floor_eq_iff]; norm_num
+    have e3 : ⌊(2 : ℝ) * (1499 / 1000) ^ (3 : ℕ)⌋ = 6 := by rw [Int.floor_eq_iff]; norm_num
+    have e4 : ⌊(2 : ℝ) * (1499 / 1000) ^ (4 : ℕ)⌋ = 10 := by rw [Int.floor_eq_iff]; norm_num
+    have e5 : ⌊(2 : ℝ) * (1499 / 1000) ^ (5 : ℕ)⌋ = 15 := by rw [Int.floor_eq_iff]; norm_num
+    have e6 : ⌊(2 : ℝ) * (1499 / 1000) ^ (6 : ℕ)⌋ = 22 := by rw [Int.floor_eq_iff]; norm_num
+    have e7 : ⌊(2 : ℝ) * (1499 / 1000) ^ (7 : ℕ)⌋ = 34 := by rw [Int.floor_eq_iff]; norm_num
+    have e8 : ⌊(2 : ℝ) * (1499 / 1000) ^ (8 : ℕ)⌋ = 50 := by rw [Int.floor_eq_iff]; norm_num
+    have himg : (Finset.range 8).image (fun n : ℕ => ⌊(2 : ℝ) * (1499 / 1000) ^ n⌋) = {2, 4, 6, 10, 15, 22, 34} := by
+      rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_zero]
+      simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3, e4, e5, e6, e7]
+      decide
+    refine isGoodPair_of_run (2 : ℝ) (1499 / 1000 : ℝ) (by norm_num) (by norm_num) (by norm_num) 8 14 79 ?_ ?_ ?_
+    · rw [himg, e8]; decide
+    · rw [himg]; exact window_W2
+    · omega
+  · have e0 : ⌊(5 / 2 : ℝ) * (29 / 20) ^ (0 : ℕ)⌋ = 2 := by rw [Int.floor_eq_iff]; norm_num
+    have e1 : ⌊(5 / 2 : ℝ) * (29 / 20) ^ (1 : ℕ)⌋ = 3 := by rw [Int.floor_eq_iff]; norm_num
+    have e2 : ⌊(5 / 2 : ℝ) * (29 / 20) ^ (2 : ℕ)⌋ = 5 := by rw [Int.floor_eq_iff]; norm_num
+    have e3 : ⌊(5 / 2 : ℝ) * (29 / 20) ^ (3 : ℕ)⌋ = 7 := by rw [Int.floor_eq_iff]; norm_num
+    have e4 : ⌊(5 / 2 : ℝ) * (29 / 20) ^ (4 : ℕ)⌋ = 11 := by rw [Int.floor_eq_iff]; norm_num
+    have e5 : ⌊(5 / 2 : ℝ) * (29 / 20) ^ (5 : ℕ)⌋ = 16 := by rw [Int.floor_eq_iff]; norm_num
+    have e6 : ⌊(5 / 2 : ℝ) * (29 / 20) ^ (6 : ℕ)⌋ = 23 := by rw [Int.floor_eq_iff]; norm_num
+    have e7 : ⌊(5 / 2 : ℝ) * (29 / 20) ^ (7 : ℕ)⌋ = 33 := by rw [Int.floor_eq_iff]; norm_num
+    have e8 : ⌊(5 / 2 : ℝ) * (29 / 20) ^ (8 : ℕ)⌋ = 48 := by rw [Int.floor_eq_iff]; norm_num
+    have himg : (Finset.range 8).image (fun n : ℕ => ⌊(5 / 2 : ℝ) * (29 / 20) ^ n⌋) = {2, 3, 5, 7, 11, 16, 23, 33} := by
+      rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_zero]
+      simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3, e4, e5, e6, e7]
+      decide
+    refine isGoodPair_of_run (5 / 2 : ℝ) (29 / 20 : ℝ) (by norm_num) (by norm_num) (by norm_num) 8 23 77 ?_ ?_ ?_
+    · rw [himg, e8]; decide
+    · rw [himg]; exact window_W3
+    · omega
+  · have e0 : ⌊(5 / 2 : ℝ) * (449 / 300) ^ (0 : ℕ)⌋ = 2 := by rw [Int.floor_eq_iff]; norm_num
+    have e1 : ⌊(5 / 2 : ℝ) * (449 / 300) ^ (1 : ℕ)⌋ = 3 := by rw [Int.floor_eq_iff]; norm_num
+    have e2 : ⌊(5 / 2 : ℝ) * (449 / 300) ^ (2 : ℕ)⌋ = 5 := by rw [Int.floor_eq_iff]; norm_num
+    have e3 : ⌊(5 / 2 : ℝ) * (449 / 300) ^ (3 : ℕ)⌋ = 8 := by rw [Int.floor_eq_iff]; norm_num
+    have e4 : ⌊(5 / 2 : ℝ) * (449 / 300) ^ (4 : ℕ)⌋ = 12 := by rw [Int.floor_eq_iff]; norm_num
+    have e5 : ⌊(5 / 2 : ℝ) * (449 / 300) ^ (5 : ℕ)⌋ = 18 := by rw [Int.floor_eq_iff]; norm_num
+    have e6 : ⌊(5 / 2 : ℝ) * (449 / 300) ^ (6 : ℕ)⌋ = 28 := by rw [Int.floor_eq_iff]; norm_num
+    have e7 : ⌊(5 / 2 : ℝ) * (449 / 300) ^ (7 : ℕ)⌋ = 42 := by rw [Int.floor_eq_iff]; norm_num
+    have e8 : ⌊(5 / 2 : ℝ) * (449 / 300) ^ (8 : ℕ)⌋ = 62 := by rw [Int.floor_eq_iff]; norm_num
+    have himg : (Finset.range 8).image (fun n : ℕ => ⌊(5 / 2 : ℝ) * (449 / 300) ^ n⌋) = {2, 3, 5, 8, 12, 18, 28, 42} := by
+      rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_zero]
+      simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3, e4, e5, e6, e7]
+      decide
+    refine isGoodPair_of_run (5 / 2 : ℝ) (449 / 300 : ℝ) (by norm_num) (by norm_num) (by norm_num) 8 25 93 ?_ ?_ ?_
+    · rw [himg, e8]; decide
+    · rw [himg]; exact window_W4
+    · omega
+  · have e0 : ⌊(3 : ℝ) * (37 / 25) ^ (0 : ℕ)⌋ = 3 := by rw [Int.floor_eq_iff]; norm_num
+    have e1 : ⌊(3 : ℝ) * (37 / 25) ^ (1 : ℕ)⌋ = 4 := by rw [Int.floor_eq_iff]; norm_num
+    have e2 : ⌊(3 : ℝ) * (37 / 25) ^ (2 : ℕ)⌋ = 6 := by rw [Int.floor_eq_iff]; norm_num
+    have e3 : ⌊(3 : ℝ) * (37 / 25) ^ (3 : ℕ)⌋ = 9 := by rw [Int.floor_eq_iff]; norm_num
+    have e4 : ⌊(3 : ℝ) * (37 / 25) ^ (4 : ℕ)⌋ = 14 := by rw [Int.floor_eq_iff]; norm_num
+    have e5 : ⌊(3 : ℝ) * (37 / 25) ^ (5 : ℕ)⌋ = 21 := by rw [Int.floor_eq_iff]; norm_num
+    have e6 : ⌊(3 : ℝ) * (37 / 25) ^ (6 : ℕ)⌋ = 31 := by rw [Int.floor_eq_iff]; norm_num
+    have himg : (Finset.range 6).image (fun n : ℕ => ⌊(3 : ℝ) * (37 / 25) ^ n⌋) = {3, 4, 6, 9, 14, 21} := by
+      rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_zero]
+      simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3, e4, e5]
+      decide
+    refine isGoodPair_of_run (3 : ℝ) (37 / 25 : ℝ) (by norm_num) (by norm_num) (by norm_num) 6 12 45 ?_ ?_ ?_
+    · rw [himg, e6]; decide
+    · rw [himg]; exact window_W5
+    · omega
+  · have e0 : ⌊(3 : ℝ) * (89 / 60) ^ (0 : ℕ)⌋ = 3 := by rw [Int.floor_eq_iff]; norm_num
+    have e1 : ⌊(3 : ℝ) * (89 / 60) ^ (1 : ℕ)⌋ = 4 := by rw [Int.floor_eq_iff]; norm_num
+    have e2 : ⌊(3 : ℝ) * (89 / 60) ^ (2 : ℕ)⌋ = 6 := by rw [Int.floor_eq_iff]; norm_num
+    have e3 : ⌊(3 : ℝ) * (89 / 60) ^ (3 : ℕ)⌋ = 9 := by rw [Int.floor_eq_iff]; norm_num
+    have e4 : ⌊(3 : ℝ) * (89 / 60) ^ (4 : ℕ)⌋ = 14 := by rw [Int.floor_eq_iff]; norm_num
+    have e5 : ⌊(3 : ℝ) * (89 / 60) ^ (5 : ℕ)⌋ = 21 := by rw [Int.floor_eq_iff]; norm_num
+    have e6 : ⌊(3 : ℝ) * (89 / 60) ^ (6 : ℕ)⌋ = 31 := by rw [Int.floor_eq_iff]; norm_num
+    have himg : (Finset.range 6).image (fun n : ℕ => ⌊(3 : ℝ) * (89 / 60) ^ n⌋) = {3, 4, 6, 9, 14, 21} := by
+      rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_zero]
+      simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3, e4, e5]
+      decide
+    refine isGoodPair_of_run (3 : ℝ) (89 / 60 : ℝ) (by norm_num) (by norm_num) (by norm_num) 6 12 45 ?_ ?_ ?_
+    · rw [himg, e6]; decide
+    · rw [himg]; exact window_W5
+    · omega
+  · have e0 : ⌊(3 : ℝ) * (1499 / 1000) ^ (0 : ℕ)⌋ = 3 := by rw [Int.floor_eq_iff]; norm_num
+    have e1 : ⌊(3 : ℝ) * (1499 / 1000) ^ (1 : ℕ)⌋ = 4 := by rw [Int.floor_eq_iff]; norm_num
+    have e2 : ⌊(3 : ℝ) * (1499 / 1000) ^ (2 : ℕ)⌋ = 6 := by rw [Int.floor_eq_iff]; norm_num
+    have e3 : ⌊(3 : ℝ) * (1499 / 1000) ^ (3 : ℕ)⌋ = 10 := by rw [Int.floor_eq_iff]; norm_num
+    have e4 : ⌊(3 : ℝ) * (1499 / 1000) ^ (4 : ℕ)⌋ = 15 := by rw [Int.floor_eq_iff]; norm_num
+    have e5 : ⌊(3 : ℝ) * (1499 / 1000) ^ (5 : ℕ)⌋ = 22 := by rw [Int.floor_eq_iff]; norm_num
+    have e6 : ⌊(3 : ℝ) * (1499 / 1000) ^ (6 : ℕ)⌋ = 34 := by rw [Int.floor_eq_iff]; norm_num
+    have e7 : ⌊(3 : ℝ) * (1499 / 1000) ^ (7 : ℕ)⌋ = 51 := by rw [Int.floor_eq_iff]; norm_num
+    have e8 : ⌊(3 : ℝ) * (1499 / 1000) ^ (8 : ℕ)⌋ = 76 := by rw [Int.floor_eq_iff]; norm_num
+    have himg : (Finset.range 8).image (fun n : ℕ => ⌊(3 : ℝ) * (1499 / 1000) ^ n⌋) = {3, 4, 6, 10, 15, 22, 34, 51} := by
+      rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_zero]
+      simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3, e4, e5, e6, e7]
+      decide
+    refine isGoodPair_of_run (3 : ℝ) (1499 / 1000 : ℝ) (by norm_num) (by norm_num) (by norm_num) 8 34 111 ?_ ?_ ?_
+    · rw [himg, e8]; decide
+    · rw [himg]; exact window_W6
+    · omega
+  · have e0 : ⌊(4 : ℝ) * (76 / 53) ^ (0 : ℕ)⌋ = 4 := by rw [Int.floor_eq_iff]; norm_num
+    have e1 : ⌊(4 : ℝ) * (76 / 53) ^ (1 : ℕ)⌋ = 5 := by rw [Int.floor_eq_iff]; norm_num
+    have e2 : ⌊(4 : ℝ) * (76 / 53) ^ (2 : ℕ)⌋ = 8 := by rw [Int.floor_eq_iff]; norm_num
+    have e3 : ⌊(4 : ℝ) * (76 / 53) ^ (3 : ℕ)⌋ = 11 := by rw [Int.floor_eq_iff]; norm_num
+    have e4 : ⌊(4 : ℝ) * (76 / 53) ^ (4 : ℕ)⌋ = 16 := by rw [Int.floor_eq_iff]; norm_num
+    have e5 : ⌊(4 : ℝ) * (76 / 53) ^ (5 : ℕ)⌋ = 24 := by rw [Int.floor_eq_iff]; norm_num
+    have e6 : ⌊(4 : ℝ) * (76 / 53) ^ (6 : ℕ)⌋ = 34 := by rw [Int.floor_eq_iff]; norm_num
+    have e7 : ⌊(4 : ℝ) * (76 / 53) ^ (7 : ℕ)⌋ = 49 := by rw [Int.floor_eq_iff]; norm_num
+    have e8 : ⌊(4 : ℝ) * (76 / 53) ^ (8 : ℕ)⌋ = 71 := by rw [Int.floor_eq_iff]; norm_num
+    have himg : (Finset.range 8).image (fun n : ℕ => ⌊(4 : ℝ) * (76 / 53) ^ n⌋) = {4, 5, 8, 11, 16, 24, 34, 49} := by
+      rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_zero]
+      simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3, e4, e5, e6, e7]
+      decide
+    refine isGoodPair_of_run (4 : ℝ) (76 / 53 : ℝ) (by norm_num) (by norm_num) (by norm_num) 8 31 120 ?_ ?_ ?_
+    · rw [himg, e8]; decide
+    · rw [himg]; exact window_W7
+    · omega
+  · have e0 : ⌊(5 : ℝ) * (79 / 55) ^ (0 : ℕ)⌋ = 5 := by rw [Int.floor_eq_iff]; norm_num
+    have e1 : ⌊(5 : ℝ) * (79 / 55) ^ (1 : ℕ)⌋ = 7 := by rw [Int.floor_eq_iff]; norm_num
+    have e2 : ⌊(5 : ℝ) * (79 / 55) ^ (2 : ℕ)⌋ = 10 := by rw [Int.floor_eq_iff]; norm_num
+    have e3 : ⌊(5 : ℝ) * (79 / 55) ^ (3 : ℕ)⌋ = 14 := by rw [Int.floor_eq_iff]; norm_num
+    have e4 : ⌊(5 : ℝ) * (79 / 55) ^ (4 : ℕ)⌋ = 21 := by rw [Int.floor_eq_iff]; norm_num
+    have e5 : ⌊(5 : ℝ) * (79 / 55) ^ (5 : ℕ)⌋ = 30 := by rw [Int.floor_eq_iff]; norm_num
+    have e6 : ⌊(5 : ℝ) * (79 / 55) ^ (6 : ℕ)⌋ = 43 := by rw [Int.floor_eq_iff]; norm_num
+    have e7 : ⌊(5 : ℝ) * (79 / 55) ^ (7 : ℕ)⌋ = 63 := by rw [Int.floor_eq_iff]; norm_num
+    have e8 : ⌊(5 : ℝ) * (79 / 55) ^ (8 : ℕ)⌋ = 90 := by rw [Int.floor_eq_iff]; norm_num
+    have himg : (Finset.range 8).image (fun n : ℕ => ⌊(5 : ℝ) * (79 / 55) ^ n⌋) = {5, 7, 10, 14, 21, 30, 43, 63} := by
+      rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_zero]
+      simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3, e4, e5, e6, e7]
+      decide
+    refine isGoodPair_of_run (5 : ℝ) (79 / 55 : ℝ) (by norm_num) (by norm_num) (by norm_num) 8 47 146 ?_ ?_ ?_
+    · rw [himg, e8]; decide
+    · rw [himg]; exact window_W8
+    · omega
+  · have e0 : ⌊(7 : ℝ) * (71 / 51) ^ (0 : ℕ)⌋ = 7 := by rw [Int.floor_eq_iff]; norm_num
+    have e1 : ⌊(7 : ℝ) * (71 / 51) ^ (1 : ℕ)⌋ = 9 := by rw [Int.floor_eq_iff]; norm_num
+    have e2 : ⌊(7 : ℝ) * (71 / 51) ^ (2 : ℕ)⌋ = 13 := by rw [Int.floor_eq_iff]; norm_num
+    have e3 : ⌊(7 : ℝ) * (71 / 51) ^ (3 : ℕ)⌋ = 18 := by rw [Int.floor_eq_iff]; norm_num
+    have e4 : ⌊(7 : ℝ) * (71 / 51) ^ (4 : ℕ)⌋ = 26 := by rw [Int.floor_eq_iff]; norm_num
+    have e5 : ⌊(7 : ℝ) * (71 / 51) ^ (5 : ℕ)⌋ = 36 := by rw [Int.floor_eq_iff]; norm_num
+    have e6 : ⌊(7 : ℝ) * (71 / 51) ^ (6 : ℕ)⌋ = 50 := by rw [Int.floor_eq_iff]; norm_num
+    have e7 : ⌊(7 : ℝ) * (71 / 51) ^ (7 : ℕ)⌋ = 70 := by rw [Int.floor_eq_iff]; norm_num
+    have himg : (Finset.range 7).image (fun n : ℕ => ⌊(7 : ℝ) * (71 / 51) ^ n⌋) = {7, 9, 13, 18, 26, 36, 50} := by
+      rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_zero]
+      simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3, e4, e5, e6]
+      decide
+    refine isGoodPair_of_run (7 : ℝ) (71 / 51 : ℝ) (by norm_num) (by norm_num) (by norm_num) 7 42 117 ?_ ?_ ?_
+    · rw [himg, e7]; decide
+    · rw [himg]; exact window_W9
+    · omega
+  · have e0 : ⌊(10 : ℝ) * (43 / 34) ^ (0 : ℕ)⌋ = 10 := by rw [Int.floor_eq_iff]; norm_num
+    have e1 : ⌊(10 : ℝ) * (43 / 34) ^ (1 : ℕ)⌋ = 12 := by rw [Int.floor_eq_iff]; norm_num
+    have e2 : ⌊(10 : ℝ) * (43 / 34) ^ (2 : ℕ)⌋ = 15 := by rw [Int.floor_eq_iff]; norm_num
+    have e3 : ⌊(10 : ℝ) * (43 / 34) ^ (3 : ℕ)⌋ = 20 := by rw [Int.floor_eq_iff]; norm_num
+    have e4 : ⌊(10 : ℝ) * (43 / 34) ^ (4 : ℕ)⌋ = 25 := by rw [Int.floor_eq_iff]; norm_num
+    have e5 : ⌊(10 : ℝ) * (43 / 34) ^ (5 : ℕ)⌋ = 32 := by rw [Int.floor_eq_iff]; norm_num
+    have e6 : ⌊(10 : ℝ) * (43 / 34) ^ (6 : ℕ)⌋ = 40 := by rw [Int.floor_eq_iff]; norm_num
+    have e7 : ⌊(10 : ℝ) * (43 / 34) ^ (7 : ℕ)⌋ = 51 := by rw [Int.floor_eq_iff]; norm_num
+    have e8 : ⌊(10 : ℝ) * (43 / 34) ^ (8 : ℕ)⌋ = 65 := by rw [Int.floor_eq_iff]; norm_num
+    have himg : (Finset.range 8).image (fun n : ℕ => ⌊(10 : ℝ) * (43 / 34) ^ n⌋) = {10, 12, 15, 20, 25, 32, 40, 51} := by
+      rw [Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_add_one, Finset.range_zero]
+      simp only [Finset.image_insert, Finset.image_empty, e0, e1, e2, e3, e4, e5, e6, e7]
+      decide
+    refine isGoodPair_of_run (10 : ℝ) (43 / 34 : ℝ) (by norm_num) (by norm_num) (by norm_num) 8 69 136 ?_ ?_ ?_
+    · rw [himg, e8]; decide
+    · rw [himg]; exact window_W10
+    · omega
+
 end Erdos349
