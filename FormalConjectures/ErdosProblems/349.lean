@@ -689,10 +689,11 @@ theorem floorSeq_not_entirelyComplete_of_le_two
   exact entire_gap_not_complete (fun n => ⌊t * α ^ n⌋) hmono hnn 0 (⌊t⌋ + 1) hm hlo hhi
 
 /-- **Distinct-value prefix sum.** `C a N` is the sum of the *distinct* values among
-`a 0, ..., a (N - 1)`. Auxiliary to `entirely_complete_of_doubling` below: the relevant
-"running reachable total" for subset sums over the SET `Set.range a` (duplicate values are
-counted once, unlike a plain prefix sum). -/
-private noncomputable def C (a : ℕ → ℤ) (N : ℕ) : ℤ := ∑ x ∈ (Finset.range N).image a, x
+`a 0, ..., a (N - 1)`. Originally auxiliary to `entirely_complete_of_doubling` below (the relevant
+"running reachable total" for subset sums over the SET `Set.range a`, duplicate values counted
+once); no longer `private` since it is also part of the public interface of
+`floorSeq_brown_all` / `eventuallyComplete_of_brown_of_base_window` further below. -/
+noncomputable def C (a : ℕ → ℤ) (N : ℕ) : ℤ := ∑ x ∈ (Finset.range N).image a, x
 
 /-- **Abstract doubling criterion** (van Doorn's Lemma 3, applied with base phase length $r = 0$).
 
@@ -1048,5 +1049,416 @@ theorem entirelyComplete_floorSeq_iff_lt_two (t α : ℝ) (hα_lo : 1 < α) (hα
   · intro ht2
     exact isEntirelyAddComplete_of_one_le_lt_two t α hα_lo hα_hi ht1 ht2
 
+
+/-- **Unboundedness of the floor sequence.** For $t > 0$ and $\alpha > 1$, the sequence
+$n \mapsto \lfloor t\alpha^n\rfloor$ is unbounded above: for every $M$ there is an $n$ with
+$M \le \lfloor t\alpha^n\rfloor$. Textbook-level consequence of $\alpha^n \to \infty$, not itself
+a partial result on Erdős Problem 349; a building block for `isGoodPair_of_pos_of_lt_two` below. -/
+@[category textbook, AMS 11]
+theorem floorSeq_unbounded (t α : ℝ) (ht : 0 < t) (hα1 : 1 < α) :
+    ∀ M : ℤ, ∃ n : ℕ, M ≤ ⌊t * α ^ n⌋ := by
+  intro M
+  obtain ⟨n, hn⟩ := pow_unbounded_of_one_lt (((M : ℝ) + 1) / t) hα1
+  refine ⟨n, Int.le_floor.mpr ?_⟩
+  have : (M : ℝ) + 1 < t * α ^ n := by
+    rw [div_lt_iff₀ ht] at hn; linarith
+  linarith
+
+/-- **Distinct-value prefix sum, toolbox: the empty prefix.** $C\ a\ 0 = 0$. Textbook-level;
+shared with `entirely_complete_of_doubling` above (same `C`), reused here for the small-$t$
+eventual-completeness engine. -/
+@[category textbook, AMS 11]
+theorem C_zero (a : ℕ → ℤ) : C a 0 = 0 := by simp [C]
+
+/-- **Distinct-value prefix sum, toolbox: the one-term prefix.** $C\ a\ 1 = a_0$.
+Textbook-level. -/
+@[category textbook, AMS 11]
+theorem C_one (a : ℕ → ℤ) : C a 1 = a 0 := by simp [C]
+
+/-- **Distinct-value prefix sum, toolbox: duplicates.** If $a_n$ already occurred among
+$a_0, \ldots, a_{n-1}$, then $C\ a\ (n+1) = C\ a\ n$. Textbook-level. -/
+@[category textbook, AMS 11]
+theorem C_succ_of_mem (a : ℕ → ℤ) {n : ℕ} (h : a n ∈ (Finset.range n).image a) :
+    C a (n + 1) = C a n := by
+  have himg : (Finset.range (n + 1)).image a = (Finset.range n).image a := by
+    rw [Finset.range_add_one, Finset.image_insert, Finset.insert_eq_self.mpr h]
+  simp only [C, himg]
+
+/-- **Distinct-value prefix sum, toolbox: genuinely new values.** If $a_n$ did not occur among
+$a_0, \ldots, a_{n-1}$, then $C\ a\ (n+1) = a_n + C\ a\ n$. Textbook-level. -/
+@[category textbook, AMS 11]
+theorem C_succ_of_notMem (a : ℕ → ℤ) {n : ℕ} (h : a n ∉ (Finset.range n).image a) :
+    C a (n + 1) = a n + C a n := by
+  have himg : (Finset.range (n + 1)).image a = insert (a n) ((Finset.range n).image a) := by
+    rw [Finset.range_add_one, Finset.image_insert]
+  simp only [C, himg, Finset.sum_insert h]
+
+/-- **Distinct-value prefix sum, toolbox: strict novelty.** A value strictly larger than all of
+its predecessors has not occurred before. Textbook-level. -/
+@[category textbook, AMS 11]
+theorem notMem_image_of_forall_lt (a : ℕ → ℤ) {n : ℕ} (h : ∀ j, j < n → a j < a n) :
+    a n ∉ (Finset.range n).image a := by
+  intro hmem
+  rw [Finset.mem_image] at hmem
+  obtain ⟨j, hj, hja⟩ := hmem
+  have := h j (Finset.mem_range.mp hj)
+  omega
+
+/-- **Distinct-value prefix sum, toolbox: domination.** Each nonnegative term is dominated by
+the prefix sum containing it: $a_n \le C\ a\ (n+1)$. Textbook-level. -/
+@[category textbook, AMS 11]
+theorem le_C_succ (a : ℕ → ℤ) (hnn : ∀ n, 0 ≤ a n) (n : ℕ) : a n ≤ C a (n + 1) := by
+  have hmem : a n ∈ (Finset.range (n + 1)).image a := by
+    rw [Finset.mem_image]; exact ⟨n, Finset.mem_range.mpr (Nat.lt_succ_self n), rfl⟩
+  have : a n ≤ ∑ x ∈ (Finset.range (n + 1)).image a, x := by
+    apply Finset.single_le_sum (f := id) _ hmem
+    intro x hx; rw [Finset.mem_image] at hx; obtain ⟨i, _, rfl⟩ := hx; exact hnn i
+  simpa [C] using this
+
+/-- **Abstract eventual-completeness engine from a base window.** Let $a : \mathbb{N} \to
+\mathbb{Z}$ be nonnegative, monotone and unbounded, and suppose there are a rank $N_0$ and a
+threshold $L$ such that: (i) *base window* — every $k$ with $L \le k \le C\ a\ N_0$ is already a
+subset sum of $\{a_0, \ldots, a_{N_0 - 1}\}$; (ii) *shifted Brown margin* — $a_n + L \le 1 + C\ a\
+n$ for every $n \ge N_0$. Then $\operatorname{range} a$ is additively complete in the eventual
+sense (in fact every $k \ge L$ is a finite subset sum).
+
+Textbook-level: a purely combinatorial merge-induction on monotone integer sequences, phrased
+abstractly (no $t, \alpha$); the research content of Erdős Problem 349 is in its instantiation
+`isGoodPair_of_pos_of_lt_two` below. Analogous in spirit to `entirely_complete_of_doubling` above,
+but concluding *eventual* (not *entire*) completeness from a *base-window* hypothesis instead of a
+doubling bound — the two are independent engines for different regimes.
+
+The proof is recorded via the `formal_proof` mechanism rather than written inline, as it exceeds
+the repository's proof-length guideline. -/
+@[category textbook, AMS 11]
+theorem eventuallyComplete_of_brown_of_base_window (a : ℕ → ℤ)
+    (hnn : ∀ n, 0 ≤ a n)
+    (hmono : Monotone a)
+    (hub : ∀ M : ℤ, ∃ n, M ≤ a n)
+    (N₀ : ℕ) (L : ℤ)
+    (hbase : ∀ k : ℤ, L ≤ k → k ≤ C a N₀ →
+      k ∈ subsetSums (((Finset.range N₀).image a : Finset ℤ) : Set ℤ))
+    (hbrown : ∀ n : ℕ, N₀ ≤ n → a n + L ≤ 1 + C a n) :
+    IsAddComplete (Set.range a) := by
+  have _hmono : Monotone a := hmono
+  -- plumbing: `C` is nonnegative, dominates each term, and is monotone in `N`
+  have hmemC : ∀ N, a N ≤ C a (N + 1) := by
+    intro N
+    have hmem : a N ∈ (Finset.range (N + 1)).image a := by
+      rw [Finset.mem_image]; exact ⟨N, Finset.mem_range.mpr (Nat.lt_succ_self N), rfl⟩
+    have : a N ≤ ∑ x ∈ (Finset.range (N + 1)).image a, x := by
+      apply Finset.single_le_sum (f := id) _ hmem
+      intro x hx; rw [Finset.mem_image] at hx; obtain ⟨i, _, rfl⟩ := hx; exact hnn i
+    simpa [C] using this
+  have hCmono : Monotone (C a) := by
+    intro M N hMN
+    apply Finset.sum_le_sum_of_subset_of_nonneg
+    · exact Finset.image_subset_image (Finset.range_subset_range.mpr hMN)
+    · intro x hx _; rw [Finset.mem_image] at hx; obtain ⟨i, _, rfl⟩ := hx; exact hnn i
+  -- the merge induction, started at the given base window
+  have key : ∀ N : ℕ, N₀ ≤ N → ∀ k : ℤ, L ≤ k → k ≤ C a N →
+      k ∈ subsetSums (((Finset.range N).image a : Finset ℤ) : Set ℤ) := by
+    intro N hN
+    induction N, hN using Nat.le_induction with
+    | base => exact hbase
+    | succ N hN ih =>
+      intro k hkL hkC
+      by_cases hnew : a N ∈ (Finset.range N).image a
+      · -- the new value is a duplicate: nothing changes
+        have himg : (Finset.range (N + 1)).image a = (Finset.range N).image a := by
+          rw [Finset.range_add_one, Finset.image_insert, Finset.insert_eq_self.mpr hnew]
+        have hCC : C a (N + 1) = C a N := by simp only [C, himg]
+        rw [hCC] at hkC
+        rw [himg]
+        exact ih k hkL hkC
+      · -- genuinely new value: `C a (N+1) = a N + C a N`, merge the two windows
+        have himg : (Finset.range (N + 1)).image a
+            = insert (a N) ((Finset.range N).image a) := by
+          rw [Finset.range_add_one, Finset.image_insert]
+        have hCC : C a (N + 1) = a N + C a N := by
+          simp only [C, himg, Finset.sum_insert hnew]
+        rw [hCC] at hkC
+        by_cases hkle : k ≤ C a N
+        · obtain ⟨B, hB, hBeq⟩ := ih k hkL hkle
+          refine ⟨B, ?_, hBeq⟩
+          refine hB.trans ?_
+          rw [himg, Finset.coe_insert]
+          exact Set.subset_insert _ _
+        · rw [not_le] at hkle
+          -- here is where `hbrown` is consumed: `k - a N` lands back inside `[L, C a N]`
+          have hb := hbrown N hN
+          have hkL' : L ≤ k - a N := by omega
+          have hkC' : k - a N ≤ C a N := by omega
+          obtain ⟨B, hB, hBeq⟩ := ih (k - a N) hkL' hkC'
+          have haN : a N ∉ B := by
+            intro hmem
+            have := hB hmem
+            simp only [Finset.mem_coe] at this
+            exact hnew this
+          refine ⟨insert (a N) B, ?_, ?_⟩
+          · rw [himg, Finset.coe_insert, Finset.coe_insert]
+            intro x hx
+            rcases Set.mem_insert_iff.mp hx with hx | hx
+            · subst hx; exact Set.mem_insert _ _
+            · exact Set.mem_insert_iff.mpr (Or.inr (hB hx))
+          · rw [Finset.sum_insert haN]; omega
+  -- conclude: every `k ≥ L` is a subset sum of `Set.range a`
+  rw [IsAddComplete, eventually_atTop]
+  refine ⟨L, fun k hk => ?_⟩
+  obtain ⟨n, hn⟩ := hub k
+  have hkC : k ≤ C a (max (n + 1) N₀) := by
+    have h1 : k ≤ C a (n + 1) := le_trans hn (hmemC n)
+    exact le_trans h1 (hCmono (le_max_left (n + 1) N₀))
+  obtain ⟨B, hB, hBeq⟩ := key (max (n + 1) N₀) (le_max_right _ _) k hk hkC
+  refine ⟨B, ?_, hBeq⟩
+  refine hB.trans ?_
+  intro x hx
+  simp only [Finset.coe_image, Set.mem_image, Finset.mem_coe, Finset.mem_range] at hx
+  obtain ⟨i, _, rfl⟩ := hx
+  exact Set.mem_range_self i
+
+/-- **Universal Brown condition for $0 < t < 2$ on the strip $1 < \alpha < 3/2$.** The floor
+sequence $a_n = \lfloor t\alpha^n\rfloor$ satisfies $a_n \le 1 + C(n)$ for **every** $n$ (not
+merely eventually), where $C(n)$ sums the distinct values among $a_0, \ldots, a_{n-1}$. This is
+the `hbrown` hypothesis of `eventuallyComplete_of_brown_of_base_window` instantiated with the
+witnesses $N_0 = 0$, $L = 0$: since $C\ a\ 0 = 0$, no "eventually" is available and the bound must
+hold from $n = 0$ on.
+
+Proof sketch (two phases, split at the first index $n_0$ where the sequence jumps by at least
+$2$): while all increments are $\le 1$ (Phase 1), $t < 2$ gives $a_0 \le 1$ so the values form an
+initial segment and $2C(n+1) \ge a_n(a_n + 1)$ grows quadratically, giving the Brown condition
+directly. If a jump $a_{n_0 + 1} \ge a_{n_0} + 2$ occurs (Phase 2), it forces
+$t\alpha^{n_0}(\alpha - 1) > 1$, hence $t\alpha^{n_0} > 2$ (as $\alpha - 1 < 1/2$ from
+$\alpha < 3/2$), hence $a_{n_0} \ge 2$; the Phase 1 quadratic stock then starts the linear
+invariant $a_n + 1 \le 2C(n)$, which is self-propagating (all terms distinct past $n_0$, so
+$C(n+1) = a_n + C(n)$) and carries the Brown condition forward:
+$2a_{n+1} \le 3a_n + 2 < 2(1 + C(n+1))$.
+
+A **partial result** on the open Erdős Problem 349 and on the named open conjecture
+`complete_for_alpha_in_Ioo_one_to_goldenRatio` (restricted to $\alpha < 3/2$): this is the new
+mathematical content behind `isGoodPair_of_pos_of_lt_two` below.
+
+The proof is recorded via the `formal_proof` mechanism rather than written inline, as it exceeds
+the repository's proof-length guideline. -/
+@[category research solved, AMS 11]
+theorem floorSeq_brown_all (t α : ℝ) (ht : 0 < t) (ht2 : t < 2) (hα1 : 1 < α) (hα2 : α < 3 / 2) :
+    ∀ n : ℕ, ⌊t * α ^ n⌋ ≤ 1 + C (fun m : ℕ => ⌊t * α ^ m⌋) n := by
+  classical
+  set a : ℕ → ℤ := fun m : ℕ => ⌊t * α ^ m⌋ with ha
+  have hafl : ∀ n : ℕ, a n = ⌊t * α ^ n⌋ := fun n => by rw [ha]
+  suffices h : ∀ n : ℕ, a n ≤ 1 + C a n by
+    intro n; rw [← hafl n]; exact h n
+  have hα0 : (0 : ℝ) < α := by linarith
+  have hxpos : ∀ n : ℕ, (0 : ℝ) < t * α ^ n := fun n => mul_pos ht (pow_pos hα0 n)
+  have hnn : ∀ n, 0 ≤ a n := fun n => by
+    rw [hafl n]; exact Int.floor_nonneg.mpr (hxpos n).le
+  have hmono : Monotone a := by
+    rw [ha]; exact floorSeq_monotone t α ht.le hα1.le
+  have hle : ∀ n : ℕ, (a n : ℝ) ≤ t * α ^ n := fun n => by rw [hafl n]; exact Int.floor_le _
+  have hlt : ∀ n : ℕ, t * α ^ n < (a n : ℝ) + 1 := fun n => by
+    rw [hafl n]; exact Int.lt_floor_add_one _
+  -- `t < 2` enters exactly here, and only here
+  have ha0 : a 0 ≤ 1 := by
+    have h : ⌊t * α ^ (0 : ℕ)⌋ < 2 := Int.floor_lt.mpr (by simpa using ht2)
+    rw [hafl 0]; omega
+  -- the one-step bound: `α < 3/2` plus floor bracketing
+  have hstep : ∀ n : ℕ, 2 * a (n + 1) ≤ 3 * a n + 2 := by
+    intro n
+    have h1 := hle (n + 1)
+    have h2 := hlt n
+    have h3 : t * α ^ (n + 1) = α * (t * α ^ n) := by ring
+    have h4 : (0 : ℝ) ≤ (a n : ℝ) := by exact_mod_cast hnn n
+    have h5 : α * (t * α ^ n) < α * ((a n : ℝ) + 1) := mul_lt_mul_of_pos_left h2 hα0
+    have h6 : α * ((a n : ℝ) + 1) ≤ (3 / 2) * ((a n : ℝ) + 1) :=
+      mul_le_mul_of_nonneg_right hα2.le (by linarith)
+    rw [h3] at h1
+    have h7 : (2 : ℝ) * (a (n + 1) : ℝ) < 3 * (a n : ℝ) + 3 := by linarith
+    have h8 : 2 * a (n + 1) < 3 * a n + 3 := by exact_mod_cast h7
+    omega
+  -- once `t·αⁿ(α-1) ≥ 1`, the sequence increases strictly
+  have hgrow : ∀ n : ℕ, 1 ≤ (t * α ^ n) * (α - 1) → a n < a (n + 1) := by
+    intro n hb
+    have h1 : t * α ^ (n + 1) - 1 < (a (n + 1) : ℝ) := by
+      rw [hafl (n + 1)]; exact Int.sub_one_lt_floor _
+    have h2 := hle n
+    have h3 : t * α ^ (n + 1) = t * α ^ n + (t * α ^ n) * (α - 1) := by ring
+    rw [h3] at h1
+    have : (a n : ℝ) < (a (n + 1) : ℝ) := by linarith
+    exact_mod_cast this
+  by_cases hA : ∀ n : ℕ, a (n + 1) ≤ a n + 1
+  · -- **Phase 1 covers everything**: all increments are `≤ 1`
+    intro n
+    cases n with
+    | zero => rw [C_zero]; omega
+    | succ m =>
+      have h1 := hA m
+      have h2 := le_C_succ a hnn m
+      omega
+  · -- **Two phases**, split at the least index with a jump of at least `2`
+    simp only [not_forall, not_le] at hA
+    obtain ⟨n₁, hn₁⟩ := hA
+    have hex : ∃ n : ℕ, a n + 1 < a (n + 1) := ⟨n₁, hn₁⟩
+    obtain ⟨n₀, hspec, hmin⟩ : ∃ n₀ : ℕ, (a n₀ + 1 < a (n₀ + 1))
+        ∧ ∀ m : ℕ, m < n₀ → a (m + 1) ≤ a m + 1 := by
+      refine ⟨Nat.find hex, Nat.find_spec hex, ?_⟩
+      intro m hm
+      have := Nat.find_min hex hm
+      omega
+    -- Phase 1: the quadratic stock, valid up to `n₀`
+    have hQ : ∀ n : ℕ, n ≤ n₀ → a n * (a n + 1) ≤ 2 * C a (n + 1) := by
+      intro n
+      induction n with
+      | zero =>
+        intro _
+        rw [C_one]
+        have h0 := hnn 0
+        rcases (by omega : a 0 = 0 ∨ a 0 = 1) with h | h <;> rw [h] <;> norm_num
+      | succ n ih =>
+        intro hn
+        have ihn := ih (by omega)
+        have hincr : a (n + 1) ≤ a n + 1 := hmin n (by omega)
+        have hge : a n ≤ a (n + 1) := hmono (Nat.le_succ n)
+        rcases eq_or_lt_of_le hge with heq | hgt
+        · -- duplicate value: `C` and `a` both stall
+          have hmem : a (n + 1) ∈ (Finset.range (n + 1)).image a := by
+            rw [Finset.mem_image]
+            exact ⟨n, Finset.mem_range.mpr (Nat.lt_succ_self n), heq⟩
+          rw [C_succ_of_mem a hmem, ← heq]
+          exact ihn
+        · -- the value increases by exactly one: the stock grows quadratically
+          have heq1 : a (n + 1) = a n + 1 := by omega
+          have hnew : a (n + 1) ∉ (Finset.range (n + 1)).image a := by
+            refine notMem_image_of_forall_lt a ?_
+            intro j hj
+            have : a j ≤ a n := hmono (by omega)
+            omega
+          rw [C_succ_of_notMem a hnew, heq1]
+          nlinarith [ihn]
+    -- the bridge: a jump of `2` forces `t·α^{n₀}(α-1) > 1`, hence `a n₀ ≥ 2`
+    have hbig₀ : 1 < (t * α ^ n₀) * (α - 1) := by
+      have h1 := hle (n₀ + 1)
+      have h2 := hlt n₀
+      have h3 : ((a n₀ : ℝ)) + 2 ≤ (a (n₀ + 1) : ℝ) := by
+        have : a n₀ + 2 ≤ a (n₀ + 1) := by omega
+        exact_mod_cast this
+      have h4 : t * α ^ (n₀ + 1) = t * α ^ n₀ + (t * α ^ n₀) * (α - 1) := by ring
+      rw [h4] at h1
+      linarith
+    have ha₀2 : 2 ≤ a n₀ := by
+      have hx2 : (2 : ℝ) < t * α ^ n₀ := by
+        nlinarith [mul_pos (hxpos n₀) (show (0 : ℝ) < 3 / 2 - α by linarith)]
+      have : (2 : ℤ) ≤ ⌊t * α ^ n₀⌋ := Int.le_floor.mpr (by exact_mod_cast hx2.le)
+      rw [hafl n₀]; exact this
+    have hQ₀ := hQ n₀ le_rfl
+    have hs₀ := hstep n₀
+    -- start of phase 2: the Brown condition and the linear invariant at `n₀ + 1`
+    have hbrown₁ : a (n₀ + 1) ≤ 1 + C a (n₀ + 1) := by
+      nlinarith [hQ₀, hs₀, ha₀2, mul_nonneg (by linarith : (0 : ℤ) ≤ a n₀ - 2)
+        (by linarith : (0 : ℤ) ≤ a n₀)]
+    have hinv₁ : a (n₀ + 1) + 1 ≤ 2 * C a (n₀ + 1) := by
+      nlinarith [hQ₀, hs₀, ha₀2, mul_nonneg (by linarith : (0 : ℤ) ≤ a n₀ - 2)
+        (by linarith : (0 : ℤ) ≤ a n₀)]
+    -- Phase 2: the self-propagating linear invariant, carrying the Brown condition with it
+    have hphase2 : ∀ k : ℕ, (∀ j, j < n₀ + 1 + k → a j < a (n₀ + 1 + k))
+        ∧ a (n₀ + 1 + k) + 1 ≤ 2 * C a (n₀ + 1 + k)
+        ∧ 2 ≤ a (n₀ + 1 + k)
+        ∧ 1 ≤ (t * α ^ (n₀ + 1 + k)) * (α - 1)
+        ∧ a (n₀ + 1 + k) ≤ 1 + C a (n₀ + 1 + k) := by
+      intro k
+      induction k with
+      | zero =>
+        simp only [Nat.add_zero]
+        refine ⟨?_, hinv₁, by omega, ?_, hbrown₁⟩
+        · intro j hj
+          have : a j ≤ a n₀ := hmono (by omega)
+          omega
+        · have h1 : t * α ^ (n₀ + 1) = α * (t * α ^ n₀) := by ring
+          have h2 : (0 : ℝ) ≤ (α - 1) * ((t * α ^ n₀) * (α - 1)) :=
+            mul_nonneg (by linarith) (by linarith)
+          rw [h1]
+          nlinarith [hbig₀, h2]
+      | succ k ih =>
+        obtain ⟨ih1, ih2, ih3, ih4, -⟩ := ih
+        have hidx : n₀ + 1 + (k + 1) = (n₀ + 1 + k) + 1 := by omega
+        rw [hidx]
+        have hnew : a (n₀ + 1 + k) ∉ (Finset.range (n₀ + 1 + k)).image a :=
+          notMem_image_of_forall_lt a ih1
+        have hC := C_succ_of_notMem a hnew
+        have hlt' : a (n₀ + 1 + k) < a (n₀ + 1 + k + 1) := hgrow (n₀ + 1 + k) ih4
+        have hst := hstep (n₀ + 1 + k)
+        refine ⟨?_, ?_, by omega, ?_, ?_⟩
+        · intro j hj
+          rcases (by omega : j < n₀ + 1 + k ∨ j = n₀ + 1 + k) with h | h
+          · exact lt_trans (ih1 j h) hlt'
+          · rw [h]; exact hlt'
+        · rw [hC]; omega
+        · have h1 : t * α ^ (n₀ + 1 + k + 1) = α * (t * α ^ (n₀ + 1 + k)) := by ring
+          have h2 : (0 : ℝ) ≤ (α - 1) * ((t * α ^ (n₀ + 1 + k)) * (α - 1)) :=
+            mul_nonneg (by linarith) (by linarith)
+          rw [h1]
+          nlinarith [ih4, h2]
+        · rw [hC]; omega
+    -- assemble: below `n₀` the increments are `≤ 1`, above it phase 2 applies
+    intro n
+    rcases le_or_gt n n₀ with hn | hn
+    · cases n with
+      | zero => rw [C_zero]; omega
+      | succ m =>
+        have h1 := hmin m (by omega)
+        have h2 := le_C_succ a hnn m
+        omega
+    · obtain ⟨k, rfl⟩ : ∃ k, n = n₀ + 1 + k := ⟨n - (n₀ + 1), by omega⟩
+      exact (hphase2 k).2.2.2.2
+
+/-- **Erdős Problem 349, eventual completeness for $0 < t < 2$ on the strip $1 < \alpha < 3/2$.**
+
+The pair $(t, \alpha)$ is good, i.e. $\lfloor t\alpha^n\rfloor$ is additively complete in the
+**eventual** sense. Instantiates `eventuallyComplete_of_brown_of_base_window` with the explicit
+base window $N_0 = 0$, $L = 0$: `hbase` is trivial ($C\ a\ 0 = 0$, so the only admissible $k$ is
+$0 = \sum_{i \in \emptyset} i$) and `hbrown` is `floorSeq_brown_all`.
+
+This closes the sub-case $0 < t < 1$ left out of scope by `isGoodPair_of_one_le_lt_two` /
+`entirelyComplete_floorSeq_iff_lt_two` above (which need $1 \le t$): for $0 < t < 1$,
+$a_0 = \lfloor t\rfloor = 0$ and the sequence begins with a prefix of zeros, so *entire*
+completeness is not even the right notion there — only *eventual* completeness, which is exactly
+`IsGoodPair`. Together with `isGoodPair_of_one_le_lt_two` this gives eventual completeness for
+**all** $0 < t < 2$ on the strip, strictly beyond the *entire*-completeness threshold $t < 2$
+proved there: e.g. $(t, \alpha) = (7/4, 7/5)$ has $t\alpha = 2.45 > 2$, outside van Doorn's
+"easy" $t\alpha < 2$ range, yet is covered here.
+
+A **partial result** on the open Erdős Problem 349 and on the named open conjecture
+`complete_for_alpha_in_Ioo_one_to_goldenRatio` (restricted to $\alpha < 3/2$, eventual sense,
+$t < 2$); nothing is claimed for $t \ge 2$ on this route, and no "only if" direction is claimed.
+
+The proof is recorded via the `formal_proof` mechanism rather than written inline, as it exceeds
+the repository's proof-length guideline (it depends on two linked theorems). -/
+@[category research solved, AMS 11]
+theorem isGoodPair_of_pos_of_lt_two (t α : ℝ) (ht : 0 < t) (ht2 : t < 2)
+    (hα1 : 1 < α) (hα2 : α < 3 / 2) : IsGoodPair t α := by
+  have hα0 : (0 : ℝ) < α := by linarith
+  refine eventuallyComplete_of_brown_of_base_window (fun n : ℕ => ⌊t * α ^ n⌋)
+    (fun n => floorSeq_nonneg t α ht.le hα0.le n) (floorSeq_monotone t α ht.le hα1.le)
+    (floorSeq_unbounded t α ht hα1) 0 0 ?_ ?_
+  · intro k hk0 hkC
+    rw [C_zero] at hkC
+    have hk : k = 0 := le_antisymm hkC hk0
+    exact ⟨∅, by simp, by simp [hk]⟩
+  · intro n _
+    simpa using floorSeq_brown_all t α ht ht2 hα1 hα2 n
+
+/-- **Erdős Problem 349, eventual completeness for $0 < t < 1$ on the strip $1 < \alpha < 3/2$.**
+
+Corollary of `isGoodPair_of_pos_of_lt_two`, specialized to $t < 1$: the sub-case left entirely out
+of scope by the *entire*-completeness results above (`isGoodPair_of_one_le_lt_two`,
+`entirelyComplete_floorSeq_iff_lt_two`), which all require $1 \le t$. A **partial result** on the
+open Erdős Problem 349 and on `complete_for_alpha_in_Ioo_one_to_goldenRatio` (restricted to
+$\alpha < 3/2$, eventual sense, $t < 1$).
+
+The proof is recorded via the `formal_proof` mechanism rather than written inline, as it depends
+on a linked theorem. -/
+@[category research solved, AMS 11]
+theorem isGoodPair_of_pos_of_lt_one (t α : ℝ) (ht : 0 < t) (ht1 : t < 1)
+    (hα1 : 1 < α) (hα2 : α < 3 / 2) : IsGoodPair t α :=
+  isGoodPair_of_pos_of_lt_two t α ht (by linarith) hα1 hα2
 
 end Erdos349
