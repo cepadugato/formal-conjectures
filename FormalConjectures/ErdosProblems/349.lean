@@ -863,6 +863,7 @@ theorem isGoodPair_of_run (t α : ℝ) (ht : 1 ≤ t) (hα1 : 1 < α) (hα2 : α
       ht hα1 hα2 hnew (by omega)
 /-- Every integer of $[2, 7]$ is a subset sum of $\{2, 3, 4\}$ (6 explicit witnesses, kernel-checked by `decide` on concrete `Finset ℤ` literals). A finite building block for `isGoodPair_of_run`'s run hypothesis. -/
 @[category textbook, AMS 11]
+
 theorem window_two_four : ∀ k : ℤ, 2 ≤ k → k ≤ 7 →
     k ∈ subsetSums ((({2, 3, 4} : Finset ℤ)) : Set ℤ) := by
   intro k hk1 hk2
@@ -1657,6 +1658,7 @@ theorem window_W10 : ∀ k : ℤ, 69 ≤ k → k ≤ 136 →
   · exact mem_subsetSums_of_subset (B := {10, 12, 15, 25, 32, 40}) (by decide) (by decide)
   · exact mem_subsetSums_of_subset (B := {12, 32, 40, 51}) (by decide) (by decide)
   · exact mem_subsetSums_of_subset (B := {20, 25, 40, 51}) (by decide) (by decide)
+
 /-- **First good pair strictly outside the near-one strip.** $(5/2, 7/5)$ is a good pair:
 $N_0 = 3$, the floor sequence gives the distinct values $\{2, 3, 4\}$, then $a_3 = 6$ exactly
 fits the run $[2, 7]$ (`window_two_four`). Since $\lfloor 5/2\rfloor = 2$, the strip
@@ -1750,6 +1752,7 @@ theorem isGoodPair_three_alpha_1_4999 : IsGoodPair (3 : ℝ) (14999 / 10000 : �
   · rw [himg, e8]; decide
   · rw [himg]; exact window_W6
   · omega
+
 /-- **Seventeen further good pairs, same reduction, compactly bundled.** All instantiate
 `isGoodPair_of_run` exactly like the four headline results above (explicit floor values up to a
 new rank $N_0$, matched against a finite window certificate); bundled into one statement so the
