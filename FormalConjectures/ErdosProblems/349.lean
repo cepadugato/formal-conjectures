@@ -2061,7 +2061,6 @@ theorem isGoodPair_run_further_instances :
     · rw [himg]; exact window_W10
     · omega
 
-
 /- ## The block-run lemma: from 21 pointwise certificates to an infinite family
 
 `isGoodPair_of_run` above reduces goodness of a single pair $(t, \alpha)$ to a *finite*
