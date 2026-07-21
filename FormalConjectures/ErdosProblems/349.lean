@@ -2431,6 +2431,7 @@ theorem isGoodPair_of_two_le_lt_three_of_near_one (t α : ℝ)
 
 /-- **Non-vacuity, inside the $2 \le t < 3$ warm-up.** $(t, \alpha) = (5/2, 9/8)$: $9/8 \le 7/6$.
 -/
+@[category test, AMS 11]
 example : IsGoodPair (5 / 2 : ℝ) (9 / 8 : ℝ) :=
   isGoodPair_of_two_le_lt_three_of_near_one (5 / 2) (9 / 8) (by norm_num) (by norm_num)
     (by norm_num) (by norm_num)
@@ -2442,6 +2443,7 @@ is proved for general blocks, not just $\{2,\ldots,6\}$. Bound check: $\lfloor 5
 $2\lfloor t\rfloor + 2 = 12$ and the strip bound is $1 + 1/12 = 13/12$; $\alpha = 13/12$ meets it
 with **equality**, the extreme admissible value at $t = 5$. This shows `isGoodPair_of_two_le`
 provably exceeds the $t < 3$ warm-up: it is not merely a repackaging of `window_two_six`. -/
+@[category test, AMS 11]
 example : IsGoodPair (5 : ℝ) (13 / 12 : ℝ) := by
   have hfl : ⌊(5 : ℝ)⌋ = 5 := by norm_num
   refine isGoodPair_of_two_le 5 (13 / 12) (by norm_num) (by norm_num) ?_
